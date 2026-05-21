@@ -22,18 +22,17 @@ void Outputs::init() {
     ledcAttach(outputList[i], 1000, 8); // pin, 1kHz, 8-bit resolution
   }
 
-  // Initialize I2C with custom SDA/SCL pins for ESP32-S3
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
 
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
-  pwm.setPWMFreq(90);  // This is the maximum PWM frequency
+  pwm.setPWMFreq(90);
   pwm1.begin();
   pwm1.setOscillatorFrequency(27000000);
-  pwm1.setPWMFreq(90);  // This is the maximum PWM frequency
+  pwm1.setPWMFreq(90);
   pwm2.begin();
   pwm2.setOscillatorFrequency(27000000);
-  pwm2.setPWMFreq(90);  // This is the maximum PWM frequency
+  pwm2.setPWMFreq(90);
   Wire.setClock(400000);
   Wire.setTimeout(3000);
 

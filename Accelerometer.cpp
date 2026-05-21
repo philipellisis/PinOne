@@ -1,9 +1,11 @@
 #include "Accelerometer.h"
 #include <Arduino.h>
+#include <Wire.h>
 #include "UsbHid.h"
 #include "MPU6050.h"
 #include "Enums.h"
 #include "Globals.h"
+#include "Pins.h"
 
 
 
@@ -14,32 +16,31 @@ Accelerometer::Accelerometer()
 
 void Accelerometer::init()
 {
-  uint8_t count = 0;
-  if (!mpu.init())
-  {
-    delay(1000);
-  }
-  while (!mpu.init())
-  {
-    delay(100);
-    if (count > 10)
-    {
-      config.accelerometer = 0;
-      config.accelerometerEprom = 0;
-      break;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.print(F("I2C,0x"));
+      Serial.println(addr, HEX);
     }
-    count++;
-  }
-  if (count > 10)
-  {
-    return;
-  }
-  else
-  {
-    count = 0;
   }
 
-  mpu.config();
+  uint8_t count = 0;
+  bool ok = mpu.init();
+
+  while (!ok && count < 10)
+  {
+    delay(100);
+    count++;
+    ok = mpu.init();
+  }
+
+  if (!ok)
+  {
+    config.accelerometer = 0;
+    config.accelerometerEprom = 0;
+    return;
+  }
+
   resetAccelerometer();
 }
 

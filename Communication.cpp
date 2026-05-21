@@ -69,7 +69,10 @@ void Communication::sendAdmin() {
     case GET_CONFIG:
       config.updateConfigFromSerial();
       plunger.resetPlunger();
-      accel.resetAccelerometer();
+      config.accelerometerEprom = config.accelerometer;
+      if (config.accelerometerEprom > 0) {
+        accel.init();
+      }
       admin = 0;
       break;
     case OFF:

@@ -2,8 +2,6 @@
 #define MPU6050_H
 
 #include "Arduino.h"
-#include <Adafruit_BusIO_Register.h>
-#include <Adafruit_I2CDevice.h>
 #include <Wire.h>
 
 class MPU6050 {
@@ -19,11 +17,13 @@ class MPU6050 {
     void config();
 
   private:
+    bool initialized = false;
     int rawAccX, rawAccY, rawAccZ;
     int accelRange = 0;
-    Adafruit_I2CDevice *i2c_dev = NULL;
+    TwoWire *_wire = nullptr;
 
+    uint8_t readReg(uint8_t reg);
+    void writeReg(uint8_t reg, uint8_t val);
 };
-
 
 #endif

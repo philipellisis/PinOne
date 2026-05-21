@@ -17,6 +17,9 @@ unsigned char toggle = 0;
 //   USB CDC On Boot: Enabled   ← framework starts CDC before setup(), no USB.begin() needed here
 void setup() {
   Serial.begin(9600);
+  // Wait up to 5s for Serial Monitor to open; board continues alone after timeout
+  unsigned long _t = millis();
+  while (!Serial && millis() - _t < 5000) delay(10);
 
   config.init();
   config.debug = false;
