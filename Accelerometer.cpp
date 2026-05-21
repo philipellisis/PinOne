@@ -196,13 +196,13 @@ void Accelerometer::updateYAxis() {
 
 void Accelerometer::sendAccelerometerState()
 {
-  Serial.print(F("A,"));
-  Serial.print((getRawAccelValue() - xValueOffset));
-  Serial.print(F(","));
-  Serial.print((mpu.getY() - yValueOffset));
-  Serial.print(F(","));
-  Serial.print(xValue);
-  Serial.print(F(","));
-  Serial.print(yValue);
-  Serial.print(F("\r\n"));
+  ComSerial.print(F("A,"));
+  ComSerial.print((getRawAccelValue() - xValueOffset));
+  ComSerial.print(F(","));
+  ComSerial.print((mpu.getY() - yValueOffset));
+  ComSerial.print(F(","));
+  ComSerial.print(xValue);
+  ComSerial.print(F(","));
+  ComSerial.print(yValue);
+  ComSerial.print(F("\r\n"));
 }

@@ -14,12 +14,16 @@ BleController bleController;
 unsigned char toggle = 0;
 // Arduino IDE board settings:
 //   USB Mode:        USB-OTG (TinyUSB)
-//   USB CDC On Boot: Enabled   ← framework starts CDC before setup(), no USB.begin() needed here
+//   USB CDC On Boot: Disabled  ← we start USB manually to get composite HID + CDC
 void setup() {
-  Serial.begin(9600);
-  // Wait up to 5s for Serial Monitor to open; board continues alone after timeout
+  // Register HID + CDC and start TinyUSB composite device
+  usbHidSetup();   // registers HID descriptors, sets VID/PID, starts ComSerial CDC
+  USB.begin();     // starts TinyUSB with composite HID + CDC
+  usbHidStart();   // initialises HID report data structures
+
+  // Wait up to 5s for the CDC port to be opened; board continues alone after timeout
   unsigned long _t = millis();
-  while (!Serial && millis() - _t < 5000) delay(10);
+  while (!ComSerial && millis() - _t < 5000) delay(10);
 
   config.init();
   config.debug = false;

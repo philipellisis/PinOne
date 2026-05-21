@@ -219,13 +219,13 @@ void Buttons::sendActualButtonPress(unsigned char buttonOffset, bool currentButt
 
 void Buttons::sendButtonState()
 {
-  Serial.print(F("B,"));
+  ComSerial.print(F("B,"));
   for (uint8_t i = 0; i < 32; i++)
   {
-    Serial.print(config.lastButtonState[i]);
-    if (i < 31) Serial.print(F(","));
+    ComSerial.print(config.lastButtonState[i]);
+    if (i < 31) ComSerial.print(F(","));
   }
-  Serial.print(F("\r\n"));
+  ComSerial.print(F("\r\n"));
 }
 void Buttons::processKeyboardAction(unsigned char keyCode, bool pressed) {
   if (keyCode > 251) {

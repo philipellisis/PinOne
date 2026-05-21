@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "USB.h"
+#include "USBCDC.h"
 #include "USBHIDGamepad.h"
 #include "USBHIDKeyboard.h"
 #include "USBHIDConsumerControl.h"
@@ -120,8 +121,9 @@ private:
 extern MinimalGamepad Gamepad1;
 extern BootKeyboardClass BootKeyboard;
 extern SingleConsumerClass SingleConsumer;
+extern USBCDC ComSerial;  // USB CDC serial port for config tool communication
 
-void usbHidSetup();  // Call before USB.begin() — registers HID descriptor and sets VID/PID
+void usbHidSetup();  // Call before USB.begin() — registers HID + CDC, sets VID/PID
 void usbHidStart();  // Call after USB.begin() — opens HID endpoints
 
 #endif

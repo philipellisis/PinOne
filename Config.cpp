@@ -244,11 +244,11 @@ void Config::updateConfigFromSerial() {
 
 
 void Config::printError() {
-  Serial.print(F("R,E\r\n"));
+  ComSerial.print(F("R,E\r\n"));
 }
 
 void Config::sendConfig() {
-    Serial.print(F("C,"));
+    ComSerial.print(F("C,"));
 
     printConfigArray(toySpecialOption, 63);
     printConfigArray(turnOffState, 63);
@@ -311,21 +311,21 @@ void Config::sendConfig() {
     printComma(lowLatencyMode);
     printComma(plungerRestingDeadZone);
 
-    Serial.print(F("E\r\n"));
+    ComSerial.print(F("E\r\n"));
 }
 
 void Config::printComma(unsigned char value) {
-  Serial.print(value);
-  Serial.print(F(","));
+  ComSerial.print(value);
+  ComSerial.print(F(","));
 }
 
 void Config::printIntComma(int value) {
-  Serial.print(value);
-  Serial.print(F(","));
+  ComSerial.print(value);
+  ComSerial.print(F(","));
 }
 
 void Config::printSuccess() {
-  Serial.print(F("R,S\r\n"));
+  ComSerial.print(F("R,S\r\n"));
 }
 
 unsigned char Config::blockRead() {
@@ -335,8 +335,8 @@ unsigned char Config::blockRead() {
     uint32_t t1 = millis();
     uint32_t t2 = millis();
     while ((t2 - t1) < 5000) {
-      if (Serial.available() > 0) {
-        return Serial.read();
+      if (ComSerial.available() > 0) {
+        return ComSerial.read();
       }
       t2 = millis();
       delay(50);

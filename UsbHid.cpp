@@ -148,6 +148,7 @@ static const uint8_t _combinedReportDescriptor[] = {
 };
 
 static USBHID HID;
+USBCDC ComSerial;
 
 // =====================================================================
 // MinimalGamepad Implementation (TinyUSB)
@@ -293,6 +294,7 @@ void usbHidSetup() {
     USB.PID(0x9207);
     USB.productName("PinOne V2");
     USB.manufacturerName("PinOne");
+    ComSerial.begin(9600);  // register CDC before USB.begin()
 }
 
 void usbHidStart() {

@@ -135,11 +135,11 @@ void Outputs::updateOutputActual(unsigned char outputId, int outputValueStart, i
 }
 
 void Outputs::sendOutputState() {
-  Serial.print(F("O,"));
+  ComSerial.print(F("O,"));
   for (int i = 0; i < 63; i++) {
-    Serial.print(outputValues[i]);
-    Serial.print(F(","));
+    ComSerial.print(outputValues[i]);
+    ComSerial.print(F(","));
   }
-  Serial.print(config.nightMode);
-  Serial.print(F("\r\n"));
+  ComSerial.print(config.nightMode);
+  ComSerial.print(F("\r\n"));
 }
