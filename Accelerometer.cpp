@@ -16,14 +16,6 @@ Accelerometer::Accelerometer()
 
 void Accelerometer::init()
 {
-  for (uint8_t addr = 1; addr < 127; addr++) {
-    Wire.beginTransmission(addr);
-    if (Wire.endTransmission() == 0) {
-      Serial.print(F("I2C,0x"));
-      Serial.println(addr, HEX);
-    }
-  }
-
   uint8_t count = 0;
   bool ok = mpu.init();
 

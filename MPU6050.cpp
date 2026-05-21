@@ -3,10 +3,8 @@
 #include "MPU6050.h"
 
 #define ICM42670_I2C_ADDR       0x69
-#define ICM42670_MCLK_RDY       0x00
 #define ICM42670_WHO_AM_I       0x75
 #define ICM42670_WHO_AM_I_VAL   0x67
-#define ICM42670_DEVICE_CONFIG  0x01
 #define ICM42670_PWR_MGMT0      0x1F
 #define ICM42670_ACCEL_CONFIG0  0x21
 #define ICM42670_ACCEL_DATA_X1  0x0B
@@ -39,10 +37,10 @@ bool MPU6050::init(TwoWire *wire)
         return false;
     }
 
-    // No software reset needed — RESETN is wired to ESP32 EN pin so hardware
-    // reset already guarantees a clean chip state on every boot.
-
+    // No software reset — RESETN is wired to ESP32 EN pin so hardware reset
+    // already guarantees a clean chip state on every boot.
     // After hardware reset the RC oscillator starts automatically; MCLK is ready.
+
     // Configure ACCEL_CONFIG0: ODR=100Hz (bits[3:0]=0x07), FS_SEL=±16g (bits[6:5]=00)
     writeReg(ICM42670_ACCEL_CONFIG0, 0x07);
 
@@ -51,9 +49,6 @@ bool MPU6050::init(TwoWire *wire)
     writeReg(ICM42670_PWR_MGMT0, 0x13);
     delay(50);
 
-    Serial.print(F("ICM,PWR=0x")); Serial.print(readReg(ICM42670_PWR_MGMT0), HEX);
-    Serial.print(F(",CFG=0x")); Serial.println(readReg(ICM42670_ACCEL_CONFIG0), HEX);
-
     initialized = true;
     return true;
 }
@@ -61,7 +56,7 @@ bool MPU6050::init(TwoWire *wire)
 void MPU6050::setAccelerometerRange(unsigned char new_range)
 {
     if (!initialized) return;
-    // bits[6:5] = ACCEL_UI_FS_SEL: 0=±16g, 1=±8g, 2=±4g, 3=±2g
+    // ACCEL_UI_FS_SEL bits[6:5]: 0=±16g, 1=±8g, 2=±4g, 3=±2g
     uint8_t current = readReg(ICM42670_ACCEL_CONFIG0);
     writeReg(ICM42670_ACCEL_CONFIG0, (current & 0x9F) | ((new_range & 0x03) << 5));
     accelRange = new_range;
@@ -84,23 +79,10 @@ void MPU6050::read(void)
     rawAccX = (int16_t)(buffer[0] << 8 | buffer[1]);
     rawAccY = (int16_t)(buffer[2] << 8 | buffer[3]);
     rawAccZ = (int16_t)(buffer[4] << 8 | buffer[5]);
-
-    static uint16_t logCount = 0;
-    if (++logCount >= 200) {
-        logCount = 0;
-        Serial.print(F("ICM,buf="));
-        for (uint8_t i = 0; i < 6; i++) { Serial.print(buffer[i], HEX); Serial.print(','); }
-        Serial.print(F("X=")); Serial.print(rawAccX);
-        Serial.print(F(",Y=")); Serial.print(rawAccY);
-        Serial.print(F(",Z=")); Serial.println(rawAccZ);
-    }
 }
 
 int MPU6050::getX() { return rawAccX; }
 int MPU6050::getY() { return rawAccY; }
 int MPU6050::getZ() { return rawAccZ; }
 
-void MPU6050::config()
-{
-    // ODR=100Hz via setAccelerometerRange write — kept for API compatibility
-}
+void MPU6050::config() {}
