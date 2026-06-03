@@ -18,7 +18,7 @@ class Outputs {
     void sendOutputState();
     void checkResetOutputs();
     void turnOff();
-    unsigned char outputList[15] = {40,38,39,14,15,48,12,11,47,21,18,17,45,42,10};
+    unsigned char outputList[15] = {40,38,39,14,15,48,13,7,12,11,47,21,45,42,10};
 
   private:
     void updateOutputInternal(unsigned char outputId, unsigned char outputValue);
