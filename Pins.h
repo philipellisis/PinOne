@@ -18,7 +18,7 @@
 #define PIN_I2C_SCL       9
 
 // --- Plunger (Analog Input) ---
-#define PIN_PLUNGER       18  // ADC2_CH7
+#define PIN_PLUNGER       7  // ADC2_CH7
 
 // --- Direct GPIO Outputs (15 total) ---
 // Outputs 0-7: PWM via LEDC (8 channels max on ESP32-S3)

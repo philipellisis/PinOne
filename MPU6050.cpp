@@ -7,6 +7,7 @@
 #define ICM42670_WHO_AM_I_VAL   0x67
 #define ICM42670_PWR_MGMT0      0x1F
 #define ICM42670_ACCEL_CONFIG0  0x21
+#define ICM42670_ACCEL_CONFIG1  0x24
 #define ICM42670_ACCEL_DATA_X1  0x0B
 
 uint8_t MPU6050::readReg(uint8_t reg)
@@ -44,6 +45,12 @@ bool MPU6050::init(TwoWire *wire)
     // Configure ACCEL_CONFIG0: ODR=100Hz (bits[3:0]=0x07), FS_SEL=±16g (bits[6:5]=00)
     writeReg(ICM42670_ACCEL_CONFIG0, 0x07);
 
+    // ACCEL_CONFIG1: 2nd-order UI low-pass filter at ~25 Hz.
+    // Nudge motion is 1–20 Hz; cabinet motor/flipper vibration is >40 Hz.
+    // ACCEL_UI_FILT_ORD[6:4] = 0b001 (2nd order) → 0x10
+    // ACCEL_UI_FILT_BW[2:0]  = 0b100 (~25 Hz at 100 Hz ODR) → 0x04
+    writeReg(ICM42670_ACCEL_CONFIG1, 0x14);
+
     // Enable accelerometer in Low Noise mode
     // PWR_MGMT0: IDLE(bit4)=1 | ACCEL_MODE(bits[1:0])=0b11 → 0x13
     writeReg(ICM42670_PWR_MGMT0, 0x13);
@@ -76,9 +83,17 @@ void MPU6050::read(void)
         buffer[i] = _wire->available() ? _wire->read() : 0xFF;
     }
 
-    rawAccX = (int16_t)(buffer[0] << 8 | buffer[1]);
-    rawAccY = (int16_t)(buffer[2] << 8 | buffer[3]);
-    rawAccZ = (int16_t)(buffer[4] << 8 | buffer[5]);
+    int16_t newX = (int16_t)(buffer[0] << 8 | buffer[1]);
+    int16_t newY = (int16_t)(buffer[2] << 8 | buffer[3]);
+    int16_t newZ = (int16_t)(buffer[4] << 8 | buffer[5]);
+
+    // Reject single-sample spikes: discard any reading that jumps more than
+    // SPIKE_THRESH counts from the last accepted value in one 10ms window.
+    // At ±16g / 16-bit, full scale is 32768 counts; 4000 ≈ ±2g per sample.
+    const int16_t SPIKE_THRESH = 4000;
+    if (abs(newX - rawAccX) < SPIKE_THRESH) rawAccX = newX;
+    if (abs(newY - rawAccY) < SPIKE_THRESH) rawAccY = newY;
+    if (abs(newZ - rawAccZ) < SPIKE_THRESH) rawAccZ = newZ;
 }
 
 int MPU6050::getX() { return rawAccX; }
