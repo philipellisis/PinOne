@@ -115,6 +115,13 @@ int16_t Accelerometer::getRawAccelValue() {
 }
 
 void Accelerometer::applyOrientationTransform(int16_t& x, int16_t& y) {
+  // This board revision has the MPU6050 mounted 90 degrees rotated versus the
+  // original board, so pre-rotate the raw reading before applying the
+  // user-selected orientation below.
+  int16_t rawX = x;
+  x = -y;
+  y = rawX;
+
   int16_t temp = x;
   switch (orientation) {
     case RIGHT:

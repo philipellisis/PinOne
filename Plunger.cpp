@@ -12,8 +12,8 @@ Plunger::Plunger() {
 }
 
 void Plunger::init() {
-  // Set ADC to 10-bit resolution for compatibility with V1 calibration values
-  analogReadResolution(10);
+  analogSetAttenuation(ADC_11db);
+  analogReadResolution(12);
   resetPlunger();
   priorTime = millis();
 }
@@ -35,7 +35,7 @@ void Plunger::plungerRead() {
   // Remove any sensor value that does not agree with the prior value
   uint8_t goodReadings = 0;
   for (uint8_t i = 0; i < 5; i++) {
-    newReading = analogRead(PIN_PLUNGER);
+    newReading = (int16_t)(analogReadMilliVolts(PIN_PLUNGER) * 1023L / 3300);
     if (newReading < truePriorValue + 10 && newReading > truePriorValue - 10) {
       goodReadings++;
       sensorValue += newReading;
@@ -49,7 +49,7 @@ void Plunger::plungerRead() {
 
   if (config.plungerMoving == true || config.disablePlungerWhenNotInUse == 0) {
     for (uint8_t i = 0; i < config.plungerAverageRead; i++) {
-      sensorValue += analogRead(PIN_PLUNGER);
+      sensorValue += (int16_t)(analogReadMilliVolts(PIN_PLUNGER) * 1023L / 3300);
     }
     sensorValue = sensorValue / (config.plungerAverageRead + 1);
   }
