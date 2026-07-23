@@ -21,6 +21,7 @@ class MPU6050 {
     int rawAccX, rawAccY, rawAccZ;
     int accelRange = 0;
     TwoWire *_wire = nullptr;
+    uint8_t _addr = 0x6B;
 
     uint8_t readReg(uint8_t reg);
     void writeReg(uint8_t reg, uint8_t val);

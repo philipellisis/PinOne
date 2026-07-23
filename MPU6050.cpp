@@ -2,26 +2,31 @@
 #include <Wire.h>
 #include "MPU6050.h"
 
-#define ICM42670_I2C_ADDR       0x69
-#define ICM42670_WHO_AM_I       0x75
-#define ICM42670_WHO_AM_I_VAL   0x67
-#define ICM42670_PWR_MGMT0      0x1F
-#define ICM42670_ACCEL_CONFIG0  0x21
-#define ICM42670_ACCEL_CONFIG1  0x24
-#define ICM42670_ACCEL_DATA_X1  0x0B
+// QST QMI8658 — I2C address is 0x6B with SA0 high, 0x6A with SA0 low.
+// init() probes both so either wiring works.
+#define QMI8658_I2C_ADDR_HI     0x6B
+#define QMI8658_I2C_ADDR_LO     0x6A
+#define QMI8658_WHO_AM_I        0x00
+#define QMI8658_WHO_AM_I_VAL    0x05
+#define QMI8658_CTRL1           0x02
+#define QMI8658_CTRL2           0x03
+#define QMI8658_CTRL5           0x06
+#define QMI8658_CTRL7           0x08
+#define QMI8658_RESET           0x60
+#define QMI8658_ACCEL_DATA_X_L  0x35
 
 uint8_t MPU6050::readReg(uint8_t reg)
 {
-    _wire->beginTransmission(ICM42670_I2C_ADDR);
+    _wire->beginTransmission(_addr);
     _wire->write(reg);
     _wire->endTransmission(false);
-    _wire->requestFrom((uint8_t)ICM42670_I2C_ADDR, (uint8_t)1);
+    _wire->requestFrom((uint8_t)_addr, (uint8_t)1);
     return _wire->available() ? _wire->read() : 0xFF;
 }
 
 void MPU6050::writeReg(uint8_t reg, uint8_t val)
 {
-    _wire->beginTransmission(ICM42670_I2C_ADDR);
+    _wire->beginTransmission(_addr);
     _wire->write(reg);
     _wire->write(val);
     _wire->endTransmission();
@@ -33,27 +38,37 @@ bool MPU6050::init(TwoWire *wire)
     initialized = false;
     delay(100);
 
-    if (readReg(ICM42670_WHO_AM_I) != ICM42670_WHO_AM_I_VAL)
+    _addr = QMI8658_I2C_ADDR_HI;
+    if (readReg(QMI8658_WHO_AM_I) != QMI8658_WHO_AM_I_VAL)
     {
-        return false;
+        _addr = QMI8658_I2C_ADDR_LO;
+        if (readReg(QMI8658_WHO_AM_I) != QMI8658_WHO_AM_I_VAL)
+        {
+            return false;
+        }
     }
 
-    // No software reset — RESETN is wired to ESP32 EN pin so hardware reset
-    // already guarantees a clean chip state on every boot.
-    // After hardware reset the RC oscillator starts automatically; MCLK is ready.
+    // Soft reset for a clean chip state (the QMI8658 module has no reset pin
+    // wired to the ESP32, unlike the previous ICM42670 board).
+    writeReg(QMI8658_RESET, 0xB0);
+    delay(20);
 
-    // Configure ACCEL_CONFIG0: ODR=100Hz (bits[3:0]=0x07), FS_SEL=±16g (bits[6:5]=00)
-    writeReg(ICM42670_ACCEL_CONFIG0, 0x07);
+    // CTRL1: ADDR_AI(bit6)=1 for register auto-increment on burst reads,
+    // BE(bit5)=0 so sensor data reads little-endian (L register first).
+    writeReg(QMI8658_CTRL1, 0x40);
 
-    // ACCEL_CONFIG1: 2nd-order UI low-pass filter at ~25 Hz.
+    // CTRL2: aFS bits[6:4]=0b011 (±16g), aODR bits[3:0]=0b0110 (125 Hz,
+    // closest to the 100 Hz used on the ICM42670)
+    writeReg(QMI8658_CTRL2, 0x36);
+
+    // CTRL5: accel low-pass filter on, mode 3 (BW = 13.37% of ODR → ~16.7 Hz
+    // at 125 Hz ODR — closest available to the ~25 Hz target).
     // Nudge motion is 1–20 Hz; cabinet motor/flipper vibration is >40 Hz.
-    // ACCEL_UI_FILT_ORD[6:4] = 0b001 (2nd order) → 0x10
-    // ACCEL_UI_FILT_BW[2:0]  = 0b100 (~25 Hz at 100 Hz ODR) → 0x04
-    writeReg(ICM42670_ACCEL_CONFIG1, 0x14);
+    // aLPF_MODE bits[2:1]=0b11 | aLPF_EN bit0=1 → 0x07
+    writeReg(QMI8658_CTRL5, 0x07);
 
-    // Enable accelerometer in Low Noise mode
-    // PWR_MGMT0: IDLE(bit4)=1 | ACCEL_MODE(bits[1:0])=0b11 → 0x13
-    writeReg(ICM42670_PWR_MGMT0, 0x13);
+    // CTRL7: enable accelerometer only (aEN bit0)
+    writeReg(QMI8658_CTRL7, 0x01);
     delay(50);
 
     initialized = true;
@@ -63,9 +78,11 @@ bool MPU6050::init(TwoWire *wire)
 void MPU6050::setAccelerometerRange(unsigned char new_range)
 {
     if (!initialized) return;
-    // ACCEL_UI_FS_SEL bits[6:5]: 0=±16g, 1=±8g, 2=±4g, 3=±2g
-    uint8_t current = readReg(ICM42670_ACCEL_CONFIG0);
-    writeReg(ICM42670_ACCEL_CONFIG0, (current & 0x9F) | ((new_range & 0x03) << 5));
+    // Config keeps the ICM42670 encoding (0=±16g, 1=±8g, 2=±4g, 3=±2g);
+    // QMI8658 aFS bits[6:4] are reversed (0=±2g … 3=±16g), so translate.
+    uint8_t fs = 3 - (new_range & 0x03);
+    uint8_t current = readReg(QMI8658_CTRL2);
+    writeReg(QMI8658_CTRL2, (current & 0x8F) | (fs << 4));
     accelRange = new_range;
 }
 
@@ -73,19 +90,20 @@ void MPU6050::read(void)
 {
     if (!initialized) return;
 
-    _wire->beginTransmission(ICM42670_I2C_ADDR);
-    _wire->write(ICM42670_ACCEL_DATA_X1);
+    _wire->beginTransmission(_addr);
+    _wire->write(QMI8658_ACCEL_DATA_X_L);
     _wire->endTransmission(false);
-    _wire->requestFrom((uint8_t)ICM42670_I2C_ADDR, (uint8_t)6);
+    _wire->requestFrom((uint8_t)_addr, (uint8_t)6);
 
     uint8_t buffer[6];
     for (uint8_t i = 0; i < 6; i++) {
         buffer[i] = _wire->available() ? _wire->read() : 0xFF;
     }
 
-    int16_t newX = (int16_t)(buffer[0] << 8 | buffer[1]);
-    int16_t newY = (int16_t)(buffer[2] << 8 | buffer[3]);
-    int16_t newZ = (int16_t)(buffer[4] << 8 | buffer[5]);
+    // QMI8658 outputs little-endian: L register first, then H
+    int16_t newX = (int16_t)(buffer[1] << 8 | buffer[0]);
+    int16_t newY = (int16_t)(buffer[3] << 8 | buffer[2]);
+    int16_t newZ = (int16_t)(buffer[5] << 8 | buffer[4]);
 
     // Reject single-sample spikes: discard any reading that jumps more than
     // SPIKE_THRESH counts from the last accepted value in one 10ms window.
