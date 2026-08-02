@@ -13,8 +13,7 @@ BleController bleController;
 
 unsigned char toggle = 0;
 // Arduino IDE board settings:
-//   USB Mode:        USB-OTG (TinyUSB)
-//   USB CDC On Boot: Disabled  ← we start USB manually to get composite HID + CDC
+//   Board: ESP32-Arduino -> ESP32-S3-USB-OTG
 void setup() {
   // Register HID + CDC and start TinyUSB composite device
   usbHidSetup();   // registers HID descriptors, sets VID/PID, starts ComSerial CDC

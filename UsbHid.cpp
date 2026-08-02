@@ -44,9 +44,12 @@ static const uint8_t _hidReportDescriptorGamepad[] = {
     0x09, 0x39,                    /*   USAGE (Hat switch) */
     0x15, 0x01,                    /*   LOGICAL_MINIMUM (1) */
     0x25, 0x08,                    /*   LOGICAL_MAXIMUM (8) */
-    0x95, 0x02,                    /*   REPORT_COUNT (2) */
+    0x35, 0x00,                    /*   PHYSICAL_MINIMUM (0) */
+    0x46, 0x3B, 0x01,              /*   PHYSICAL_MAXIMUM (315) */
+    0x65, 0x14,                    /*   UNIT (Eng Rot: Degree) */
     0x75, 0x04,                    /*   REPORT_SIZE (4) */
-    0x81, 0x02,                    /*   INPUT (Data,Var,Abs) */
+    0x95, 0x02,                    /*   REPORT_COUNT (2) */
+    0x81, 0x42,                    /*   INPUT (Data,Var,Abs,Null) */
     0xc0                           /* END_COLLECTION */
 };
 
@@ -89,10 +92,10 @@ static const uint8_t _hidReportDescriptorKeyboard[] = {
     0x95, 0x06,                    //   REPORT_COUNT (6)
     0x75, 0x08,                    //   REPORT_SIZE (8)
     0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
-    0x25, 0x65,                    //   LOGICAL_MAXIMUM (101)
+    0x26, 0xFF, 0x00,              //   LOGICAL_MAXIMUM (255)
     0x05, 0x07,                    //   USAGE_PAGE (Keyboard)
     0x19, 0x00,                    //   USAGE_MINIMUM (Reserved (no event indicated))
-    0x29, 0x65,                    //   USAGE_MAXIMUM (Keyboard Application)
+    0x29, 0xFF,                    //   USAGE_MAXIMUM (255, covers F13-F24 at 0x68-0x73)
     0x81, 0x00,                    //   INPUT (Data,Ary,Abs)
 
     0xc0                           // END_COLLECTION
@@ -127,7 +130,8 @@ static const uint8_t _combinedReportDescriptor[] = {
     0x09, 0x32, 0x09, 0x35, 0x15, 0x80, 0x25, 0x7F,
     0x75, 0x08, 0x95, 0x02, 0x81, 0x02, 0xc0,
     0x05, 0x01, 0x09, 0x39, 0x09, 0x39, 0x15, 0x01,
-    0x25, 0x08, 0x95, 0x02, 0x75, 0x04, 0x81, 0x02,
+    0x25, 0x08, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14,
+    0x75, 0x04, 0x95, 0x02, 0x81, 0x42,
     0xc0,
     // Consumer Control (Report ID 2)
     0x05, 0x0c, 0x09, 0x01, 0xa1, 0x01, 0x85, 0x02,
@@ -142,8 +146,8 @@ static const uint8_t _combinedReportDescriptor[] = {
     0x95, 0x05, 0x75, 0x01, 0x05, 0x08, 0x19, 0x01,
     0x29, 0x05, 0x91, 0x02,
     0x95, 0x01, 0x75, 0x03, 0x91, 0x03,
-    0x95, 0x06, 0x75, 0x08, 0x15, 0x00, 0x25, 0x65,
-    0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00,
+    0x95, 0x06, 0x75, 0x08, 0x15, 0x00, 0x26, 0xFF, 0x00,
+    0x05, 0x07, 0x19, 0x00, 0x29, 0xFF, 0x81, 0x00,
     0xc0
 };
 
@@ -291,9 +295,15 @@ SingleConsumerClass SingleConsumer;
 void usbHidSetup() {
     HID.addDevice(&Gamepad1, sizeof(_combinedReportDescriptor));
     USB.VID(0x0E8F);
-    USB.PID(0x9207);
+    // NOTE: Windows caches DirectInput calibration/layout per VID+PID under
+    // HKCU\...\MediaProperties\PrivateProperties\DirectInput\VID_xxxx&PID_xxxx.
+    // While the HID report descriptor above is still changing, bump this PID so
+    // Windows builds a fresh cache instead of reusing a stale one (which forces
+    // a manual registry-key delete). Freeze it once the descriptor is final.
+    USB.PID(0x9208);
     USB.productName("PinOne V2");
     USB.manufacturerName("PinOne");
+    USB.serialNumber("PinOne-V2-0001");  // stable ID so Windows stops re-enumerating per port
     ComSerial.begin(9600);  // register CDC before USB.begin()
 }
 

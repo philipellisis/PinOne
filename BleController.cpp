@@ -193,7 +193,7 @@ void BleController::update() {
     if (!_connected) return;
 
     // Check if keyboard mode changed
-    bool kbdMode = config.disableButtonPressWhenKeyboardEnabled;
+    uint8_t kbdMode = config.disableButtonPressWhenKeyboardEnabled;
     bool modeChanged = (kbdMode != _prevKbdMode);
 
     if (modeChanged) {
@@ -208,9 +208,11 @@ void BleController::update() {
         _prevKbdMode = kbdMode;
     }
 
-    if (kbdMode) {
+    // Mode 2 sends both keyboard and gamepad reports simultaneously
+    if (kbdMode == 1 || kbdMode == 2) {
         processKeyboardMode();
-    } else {
+    }
+    if (kbdMode == 0 || kbdMode == 2) {
         processGamepadMode();
     }
 }

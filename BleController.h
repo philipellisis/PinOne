@@ -106,7 +106,7 @@ private:
     volatile bool _outputDirty = false;
 
     // Previous state for change detection
-    bool     _prevKbdMode = false;
+    uint8_t  _prevKbdMode = 0;
     uint8_t  _prevKbdMod = 0;
     uint8_t  _prevKbdKeys[6] = {0};
     uint16_t _prevGpButtons = 0;

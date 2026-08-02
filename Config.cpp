@@ -47,7 +47,7 @@ void Config::init() {
     disableAccelOnPlungerMove = prefs.getBool("disAccelPlg", disableAccelOnPlungerMove);
     enablePlungerQuickRelease = prefs.getUChar("plgQR", enablePlungerQuickRelease);
     disablePlungerWhenNotInUse = prefs.getBool("disPlgIdle", disablePlungerWhenNotInUse);
-    disableButtonPressWhenKeyboardEnabled = prefs.getBool("kbdMode", disableButtonPressWhenKeyboardEnabled);
+    disableButtonPressWhenKeyboardEnabled = prefs.getUChar("kbdMode", disableButtonPressWhenKeyboardEnabled);
 
     accelerometerTiltY = prefs.getInt("accelTiltY", accelerometerTiltY);
     accelerometerMaxY = prefs.getInt("accelMaxY", accelerometerMaxY);
@@ -124,7 +124,7 @@ void Config::saveConfig() {
     prefs.putBool("disAccelPlg", disableAccelOnPlungerMove);
     prefs.putUChar("plgQR", enablePlungerQuickRelease);
     prefs.putBool("disPlgIdle", disablePlungerWhenNotInUse);
-    prefs.putBool("kbdMode", disableButtonPressWhenKeyboardEnabled);
+    prefs.putUChar("kbdMode", disableButtonPressWhenKeyboardEnabled);
 
     prefs.putInt("accelTiltY", accelerometerTiltY);
     prefs.putInt("accelMaxY", accelerometerMaxY);
