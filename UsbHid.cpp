@@ -181,6 +181,16 @@ void MinimalGamepad::yAxis(int16_t value) {
     write();
 }
 
+void MinimalGamepad::rxAxis(int16_t value) {
+    _report.rxAxis = value;
+    write();
+}
+
+void MinimalGamepad::ryAxis(int16_t value) {
+    _report.ryAxis = value;
+    write();
+}
+
 void MinimalGamepad::zAxis(int8_t value) {
     _report.zAxis = value;
     write();

@@ -78,6 +78,8 @@ public:
     void begin();
     void xAxis(int16_t value);
     void yAxis(int16_t value);
+    void rxAxis(int16_t value);
+    void ryAxis(int16_t value);
     void zAxis(int8_t value);
     void press(uint8_t button);
     void release(uint8_t button);

@@ -80,6 +80,10 @@ void Config::init() {
     lowLatencyMode = prefs.getBool("lowLatency", lowLatencyMode);
     plungerRestingDeadZone = prefs.getUChar("plgRestDZ", plungerRestingDeadZone);
 
+    accelerometerVelocityEnabled = prefs.getBool("accelVelEn", accelerometerVelocityEnabled);
+    accelerometerVelocityDecayTime = prefs.getInt("accelVelDecay", accelerometerVelocityDecayTime);
+    accelerometerVelocityScale = prefs.getInt("accelVelScale", accelerometerVelocityScale);
+
   } else {
     prefs.end();
     //save default config in case it's never been done before
@@ -158,6 +162,10 @@ void Config::saveConfig() {
     prefs.putBool("lowLatency", lowLatencyMode);
     prefs.putUChar("plgRestDZ", plungerRestingDeadZone);
 
+    prefs.putBool("accelVelEn", accelerometerVelocityEnabled);
+    prefs.putInt("accelVelDecay", accelerometerVelocityDecayTime);
+    prefs.putInt("accelVelScale", accelerometerVelocityScale);
+
     prefs.putBool("configured", true);
     prefs.end();
 }
@@ -229,6 +237,10 @@ void Config::updateConfigFromSerial() {
     irButton = blockRead();
     lowLatencyMode = blockRead();
     plungerRestingDeadZone = blockRead();
+
+    accelerometerVelocityEnabled = blockRead();
+    accelerometerVelocityDecayTime = readIntFromByte();
+    accelerometerVelocityScale = readIntFromByte();
 
     if(blockRead() != 42) {
       done = 1;
@@ -310,6 +322,10 @@ void Config::sendConfig() {
     printComma(irButton);
     printComma(lowLatencyMode);
     printComma(plungerRestingDeadZone);
+
+    printComma(accelerometerVelocityEnabled);
+    printIntComma(accelerometerVelocityDecayTime);
+    printIntComma(accelerometerVelocityScale);
 
     ComSerial.print(F("E\r\n"));
 }

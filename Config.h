@@ -87,6 +87,13 @@ class Config {
     unsigned char lightShowTime = 10;
     bool reverseButtonOutputPolarity = true;
 
+    // Velocity-based accelerometer input (see VP's "Accelerometer Velocity Input"
+    // feature). When enabled, in addition to the usual raw acceleration on the
+    // X/Y gamepad axes, the integrated velocity is reported on the Rx/Ry axes.
+    bool accelerometerVelocityEnabled = false;
+    int accelerometerVelocityDecayTime = 2000;  // velocity half-life, in milliseconds
+    int accelerometerVelocityScale = 100;       // INT16 units per mm/s
+
 
   private:
     unsigned char blockRead();

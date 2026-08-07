@@ -56,6 +56,11 @@ void Accelerometer::centerAccelerometer()
   }
   xValueOffset = offsetxCounter / 10;
   yValueOffset = offsetycounter / 10;
+
+  // Centering just spent time blocking on delay()/I2C reads, so the elapsed
+  // time doesn't reflect real cabinet motion; reset the velocity integrator
+  // rather than let it treat this gap as a huge, bogus time step.
+  resetVelocity();
 }
 
 void Accelerometer::resetAccelerometer()
@@ -108,6 +113,24 @@ void Accelerometer::accelerometerRead()
 
   updateXAxis();
   updateYAxis();
+
+  if (config.accelerometerVelocityEnabled)
+  {
+    updateVelocity();
+    updateRxAxis();
+    updateRyAxis();
+  }
+  else if (priorRxValue != 0 || priorRyValue != 0)
+  {
+    // velocity output was just turned off - zero the axes rather than
+    // leaving them stuck at their last reported value
+    resetVelocity();
+    Gamepad1.rxAxis(0);
+    Gamepad1.ryAxis(0);
+    priorRxValue = 0;
+    priorRyValue = 0;
+    config.updateUSB = true;
+  }
 }
 
 int16_t Accelerometer::getRawAccelValue() {
@@ -197,6 +220,88 @@ void Accelerometer::updateYAxis() {
   if (priorYValue != yValue) {
     Gamepad1.yAxis(static_cast<int16_t>(static_cast<float>(yValue) / localMaxY * 32767));
     priorYValue = yValue;
+    config.updateUSB = true;
+  }
+}
+
+// Full-scale range of the accelerometer, in g units, matching the range
+// selected by config.accelerometerSensitivity (see MPU6050::setAccelerometerRange).
+float Accelerometer::getGRange() const {
+  switch (config.accelerometerSensitivity) {
+    case 1: return 8.0f;
+    case 2: return 4.0f;
+    case 3: return 2.0f;
+    default: return 16.0f;
+  }
+}
+
+// Reset the velocity integrator. This should be called whenever a gap in
+// readings (centering, mode changes, startup) would otherwise be mistaken
+// for real elapsed time by updateVelocity().
+void Accelerometer::resetVelocity() {
+  velocityX = 0.0f;
+  velocityY = 0.0f;
+  lastVelocityMicros = 0;
+}
+
+// Integrate the current (centered, orientation-corrected) acceleration
+// reading into the running velocity estimate, in mm/s. This is the same
+// basic technique used by Pinscape Pico's nudge.vx/nudge.vy velocity axes:
+// each cycle, the existing velocity is decayed by a configurable half-life
+// (to remove the effect of any residual DC bias in the acceleration signal,
+// since a stationary cabinet's true average velocity is zero), then the new
+// acceleration's contribution is added in.
+void Accelerometer::updateVelocity() {
+  unsigned long now = micros();
+  if (lastVelocityMicros == 0) {
+    // first sample since a reset - just establish the time baseline
+    lastVelocityMicros = now;
+    return;
+  }
+
+  float dt = static_cast<float>(now - lastVelocityMicros) / 1000000.0f;
+  lastVelocityMicros = now;
+
+  // guard against bogus/huge time steps (e.g. a long stall between reads)
+  if (dt <= 0.0f || dt > 1.0f) {
+    return;
+  }
+
+  if (config.accelerometerVelocityDecayTime > 0) {
+    float decayFactor = pow(0.5f, dt / (static_cast<float>(config.accelerometerVelocityDecayTime) / 1000.0f));
+    velocityX *= decayFactor;
+    velocityY *= decayFactor;
+  }
+
+  // convert a raw (int16 full-scale) acceleration reading to mm/s^2, then
+  // to an incremental mm/s contribution over this time step
+  float convFactor = (getGRange() / 32768.0f) * 9806.65f * dt;
+  velocityX += static_cast<float>(xValue) * convFactor;
+  velocityY += static_cast<float>(yValue) * convFactor;
+}
+
+// Scale a velocity in mm/s to the arbitrary INT16 units used on the HID axes
+int16_t Accelerometer::getScaledVelocity(float velocity) const {
+  float scaled = velocity * static_cast<float>(config.accelerometerVelocityScale);
+  if (scaled > 32767.0f) return 32767;
+  if (scaled < -32768.0f) return -32768;
+  return static_cast<int16_t>(scaled);
+}
+
+void Accelerometer::updateRxAxis() {
+  int16_t scaled = getScaledVelocity(velocityX);
+  if (priorRxValue != scaled) {
+    Gamepad1.rxAxis(scaled);
+    priorRxValue = scaled;
+    config.updateUSB = true;
+  }
+}
+
+void Accelerometer::updateRyAxis() {
+  int16_t scaled = getScaledVelocity(velocityY);
+  if (priorRyValue != scaled) {
+    Gamepad1.ryAxis(scaled);
+    priorRyValue = scaled;
     config.updateUSB = true;
   }
 }

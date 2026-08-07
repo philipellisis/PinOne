@@ -22,6 +22,10 @@ class Accelerometer {
     void processTiltButton();
     void updateXAxis();
     void updateYAxis();
+    void updateVelocity();
+    void updateRxAxis();
+    void updateRyAxis();
+    void resetVelocity();
 
   private:
     int16_t xValueOffset = 0;
@@ -35,6 +39,19 @@ class Accelerometer {
     int16_t localMax = 0;
     int16_t localMaxY = 0;
     uint8_t tiltSuppressTime = 0;
+
+    // Velocity-based accelerometer input. The velocity is tracked in mm/s,
+    // by integrating the (centered, orientation-corrected) acceleration
+    // readings over time, and decays with a configurable half-life so that
+    // any residual DC bias in the acceleration signal doesn't cause the
+    // reported velocity to drift or grow unbounded.
+    float velocityX = 0.0f;
+    float velocityY = 0.0f;
+    unsigned long lastVelocityMicros = 0;
+    int16_t priorRxValue = 0;
+    int16_t priorRyValue = 0;
+    float getGRange() const;
+    int16_t getScaledVelocity(float velocity) const;
 };
 
 #endif
