@@ -15,8 +15,8 @@ Communication::Communication() {
 void Communication::communicate() {
   outputs.checkResetOutputs();
   for (uint8_t i = 0; i < 9; i++) {
-    if (ComSerial.available()) {
-      incomingData[dataLocation] = ComSerial.read();
+    if (HidConfig.available()) {
+      incomingData[dataLocation] = HidConfig.read();
       if ((dataLocation == 0 && incomingData[0] != firstNumber) || (dataLocation == 1 && (incomingData[1] < bankOffset))) {
         dataLocation = 0;
       } else {
@@ -26,7 +26,8 @@ void Communication::communicate() {
             config.lightShowState = LS_DISABLED;
             admin = incomingData[2];
           } else if (incomingData[1] == connectionNumber) {
-            ComSerial.print(connectedString);
+            ConfigOut.print(connectedString);
+            ConfigOut.flush();
           } else if (incomingData[1] == outputSingleNumber) {
             outputs.updateOutput(incomingData[2], incomingData[3]);
           } else {
@@ -67,6 +68,13 @@ void Communication::sendAdmin() {
       admin = 0;
       break;
     case GET_CONFIG:
+      // Discard any bytes still queued from the GET_CONFIG admin trigger's
+      // own OUTPUT report (it's always zero-padded out to the full 63-byte
+      // HID payload, even though only 9 bytes were meaningful). Without
+      // this, updateConfigFromSerial()'s exact-byte-count reads would
+      // consume that padding as if it were the start of the config data,
+      // shifting every field read for the rest of the transfer.
+      while (HidConfig.available()) { HidConfig.read(); }
       config.updateConfigFromSerial();
       plunger.resetPlunger();
       config.accelerometerEprom = config.accelerometer;
@@ -81,11 +89,13 @@ void Communication::sendAdmin() {
       outputs.turnOff();
       break;
     case CONNECT:
-      ComSerial.print(connectedString);
+      ConfigOut.print(connectedString);
+      ConfigOut.flush();
       admin = 0;
       break;
     case VERSION:
-      ComSerial.print(F("V,3.0.0\r\n"));
+      ConfigOut.print(F("V,3.0.0\r\n"));
+      ConfigOut.flush();
       admin = 0;
       break;
     case RESET:
@@ -94,11 +104,13 @@ void Communication::sendAdmin() {
       break;
     case SET_BLE_MAP:
       {
+        // Same leftover-padding hazard as GET_CONFIG above.
+        while (HidConfig.available()) { HidConfig.read(); }
         uint8_t bleData[64];
         for (uint8_t i = 0; i < 64; i++) {
           uint32_t t1 = millis();
-          while (!ComSerial.available() && (millis() - t1 < 5000)) { delay(1); }
-          bleData[i] = ComSerial.available() ? ComSerial.read() : 0;
+          while (!HidConfig.available() && (millis() - t1 < 5000)) { delay(1); }
+          bleData[i] = HidConfig.available() ? HidConfig.read() : 0;
         }
         // Apply button map directly to BLE controller
         bleController.updateButtonMap(bleData, 32);

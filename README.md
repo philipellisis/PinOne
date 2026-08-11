@@ -70,6 +70,74 @@ Built-in (no installation needed):
 - **esp32 by Espressif** v3.3.6 — install via Arduino IDE Boards Manager
 - Do NOT use v3.3.7 (BLE compatibility regression)
 
+## Command-Line Build (arduino-cli)
+
+You can build and flash without the Arduino IDE using [arduino-cli](https://arduino.github.io/arduino-cli/).
+
+### Install arduino-cli
+```powershell
+winget install --id ArduinoSA.CLI --source winget
+```
+(Or download a release binary from the [arduino-cli releases page](https://github.com/arduino/arduino-cli/releases).)
+
+### One-time setup
+```powershell
+arduino-cli config init
+arduino-cli config set board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+arduino-cli core update-index
+arduino-cli core install esp32:esp32@3.3.6
+arduino-cli lib install "Adafruit PWM Servo Driver Library" "Adafruit BusIO" "Adafruit MPU6050" "Adafruit Unified Sensor" "NimBLE-Arduino@2.3.7"
+```
+
+### FQBN
+```
+esp32:esp32:esp32s3usbotg
+```
+This board's default options (`USBMode=default` → USB-OTG, `PartitionScheme=default` → 4MB with spiffs) already match the settings above, so no `--board-options` flags are needed.
+
+### Compile
+```powershell
+arduino-cli compile --fqbn esp32:esp32:esp32s3usbotg .
+```
+
+### Upload
+```powershell
+arduino-cli board list
+arduino-cli compile --fqbn esp32:esp32:esp32s3usbotg -u -p COM5 .
+```
+
+## Windows "USB Game Controllers" Panel Shows the Wrong Name
+
+Windows' legacy DirectInput control panel (`joy.cpl`) displays the **HID
+interface's** string descriptor for composite HID devices, not the device
+product string set via `USB.productName()` in `UsbHid.cpp`. The installed
+ESP32 Arduino core hardcodes that interface string to `"TinyUSB HID"`, so
+the board always shows up there as "TinyUSB HID"-something regardless of
+what the sketch sets as the product name — there's no public API on
+`USBHID`/`USBHIDDevice` to override it from sketch code.
+
+This only affects that legacy panel's display name; it doesn't affect
+actual input functionality (games/Steam use XInput/RawInput and see the
+real "PinOne V2" product name fine).
+
+**Fix** (a toolchain patch, not part of this repo — must be reapplied after
+any ESP32 core reinstall/update):
+
+1. Locate the installed core's `USBHID.cpp`, e.g.:
+   `%LOCALAPPDATA%\Arduino15\packages\esp32\hardware\esp32\<version>\libraries\USB\src\USBHID.cpp`
+2. Inside `tusb_hid_load_descriptor()`, find:
+   ```cpp
+   uint8_t str_index = tinyusb_add_string_descriptor("TinyUSB HID");
+   ```
+3. Change the string literal to the desired name, e.g.:
+   ```cpp
+   uint8_t str_index = tinyusb_add_string_descriptor("PinOne V2");
+   ```
+4. Recompile and reflash. Windows may keep showing a stale cached name
+   until you unplug/replug the device (or, if it's really stuck, delete
+   the corresponding `HKEY_CURRENT_USER\...\DirectInput\VID_xxxx&PID_xxxx`
+   registry key).
+
 ## External Hardware (Unchanged from V1)
 
 | Component | Interface | Addresses |
@@ -88,7 +156,7 @@ Built-in (no installation needed):
 - **BLE HID**: Gamepad (Xbox-compatible) + Keyboard — native, no external module
 - **Light Show**: Attract mode with random animations, night mode
 - **IR Transmitter**: NEC, Samsung, Sony protocols via RMT peripheral
-- **Configuration**: Serial protocol compatible with PinOne Config Tool
+- **Configuration**: USB HID vendor channel to the PinOne Config Tool (firmware upload/bootloader still uses the CDC serial port)
 - **Storage**: ESP32 NVS (Preferences library) replaces ATmega32U4 EEPROM
 
 ## Firmware Version
@@ -98,5 +166,5 @@ V2 reports version `3.0.0` to the config tool (V1 reported `2.2.0`).
 ## Migration Notes
 
 - Plunger calibration values from V1 will need to be recalibrated via the config tool
-- The serial communication protocol is byte-identical to V1 — the config tool works without modification
+- Config-tool communication (admin/config protocol, live button/output/plunger/accelerometer state) moved from USB CDC serial to a raw USB HID vendor channel, to avoid virtual-COM-port exclusivity/driver issues on some Windows machines. Firmware upload and the bootloader-reset trigger are unaffected and still use the CDC serial port
 - BLE button mapping is stored in NVS under the `pinball` namespace (same as the separate ESP32 firmware)

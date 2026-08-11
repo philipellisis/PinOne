@@ -8,6 +8,7 @@
 #include "USBHIDKeyboard.h"
 #include "USBHIDConsumerControl.h"
 #include "USBHID.h"
+#include "USBHIDVendor.h"
 
 // Media key constants (same as V1)
 #define MEDIA_VOLUME_MUTE    0xE2
@@ -119,11 +120,32 @@ private:
     uint16_t _consumerReport;
 };
 
+// Buffered Print wrapper around a USBHIDVendor channel. USBHIDVendor::write()
+// blocks on one full HID report transfer per call with no cross-call
+// buffering, so routing many small Print calls (e.g. one per config field)
+// straight through it would stall the main loop on hundreds of blocking USB
+// round trips. This accumulates a full message in RAM and flushes it as a
+// single write() call.
+class HidPrintBuffer : public Print {
+public:
+    void begin(USBHIDVendor* dev) { _dev = dev; _len = 0; }
+    size_t write(uint8_t c) override;
+    size_t write(const uint8_t* buffer, size_t size) override;
+    void flush();
+
+private:
+    USBHIDVendor* _dev = nullptr;
+    uint8_t _buf[1700];  // sized for the largest message: full ASCII sendConfig() dump
+    size_t _len = 0;
+};
+
 // Global instances (same names as V1 for compatibility)
 extern MinimalGamepad Gamepad1;
 extern BootKeyboardClass BootKeyboard;
 extern SingleConsumerClass SingleConsumer;
-extern USBCDC ComSerial;  // USB CDC serial port for config tool communication
+extern USBCDC ComSerial;  // USB CDC serial port; kept only for bootloader/upload enumeration
+extern USBHIDVendor HidConfig;   // raw HID channel used for config-tool communication
+extern HidPrintBuffer ConfigOut; // buffered Print helper for outbound HidConfig messages
 
 void usbHidSetup();  // Call before USB.begin() — registers HID + CDC, sets VID/PID
 void usbHidStart();  // Call after USB.begin() — opens HID endpoints

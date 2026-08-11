@@ -167,7 +167,8 @@ void Plunger::updateGamepadZAxis(int8_t value, bool forceUpdate) {
 }
 
 void Plunger::sendPlungerState() {
-  ComSerial.print(F("P,"));
-  ComSerial.print(truePriorValue);
-  ComSerial.print(F("\r\n"));
+  ConfigOut.print(F("P,"));
+  ConfigOut.print(truePriorValue);
+  ConfigOut.print(F("\r\n"));
+  ConfigOut.flush();
 }

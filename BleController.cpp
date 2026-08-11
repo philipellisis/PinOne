@@ -163,7 +163,7 @@ void BleController::begin() {
 
     _hidDevice = new NimBLEHIDDevice(_server);
     _hidDevice->setManufacturer("PinOne");
-    _hidDevice->setPnp(0x02, 0x0E8F, 0x9208, 0x0100);
+    _hidDevice->setPnp(0x02, 0x39F5, 0x9208, 0x0100);  // Cleveland Software Design's assigned USB-IF vendor ID
     _hidDevice->setHidInfo(0x00, 0x01);
     _hidDevice->setBatteryLevel(100);
     _hidDevice->setReportMap((uint8_t*)hidReportMap, sizeof(hidReportMap));
@@ -212,9 +212,12 @@ void BleController::update() {
     if (kbdMode == 1 || kbdMode == 2) {
         processKeyboardMode();
     }
-    if (kbdMode == 0 || kbdMode == 2) {
-        processGamepadMode();
-    }
+    // Always send the gamepad report: plunger/accelerometer axes aren't
+    // affected by keyboard mode, and mode 1 falls back to gamepad for any
+    // button with no keyboard mapping (processGamepadMode() below skips
+    // only the buttons processKeyboardMode() is already handling), matching
+    // the wired-USB behavior in Buttons::sendActualButtonPress().
+    processGamepadMode();
 }
 
 void BleController::processKeyboardMode() {
@@ -244,9 +247,22 @@ void BleController::processGamepadMode() {
     uint16_t curButtons = 0;
     bool dpadUp = false, dpadDown = false, dpadLeft = false, dpadRight = false;
     uint16_t curLT = 0, curRT = 0;
+    uint8_t kbdMode = config.disableButtonPressWhenKeyboardEnabled;
 
     for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
         if (!config.processedButtonState[i]) continue;
+
+        // Mode 1 (keyboard only): a button with a keyboard mapping is
+        // handled by processKeyboardMode() instead — skip it here so it
+        // isn't reported twice. A button with no mapping falls back to
+        // gamepad, matching Buttons::sendActualButtonPress() on the wired
+        // path. Mode 0/2 always include every button.
+        if (kbdMode == 1) {
+            uint8_t kc = config.buttonKeyboard[i];
+            bool hasKeyMapping = (kc != 0x00 && kc != 0xFF);
+            if (hasKeyMapping) continue;
+        }
+
         int slot = _buttonMap[i];
         switch (slot) {
             case 1: case 2: case 3: case 4:

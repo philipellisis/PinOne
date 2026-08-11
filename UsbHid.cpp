@@ -153,6 +153,36 @@ static const uint8_t _combinedReportDescriptor[] = {
 
 static USBHID HID;
 USBCDC ComSerial;
+USBHIDVendor HidConfig(63, true);
+HidPrintBuffer ConfigOut;
+
+// =====================================================================
+// HidPrintBuffer Implementation
+// =====================================================================
+
+size_t HidPrintBuffer::write(uint8_t c) {
+    if (_len < sizeof(_buf)) {
+        _buf[_len++] = c;
+    }
+    return 1;
+}
+
+size_t HidPrintBuffer::write(const uint8_t* buffer, size_t size) {
+    size_t n = size;
+    if (_len + n > sizeof(_buf)) {
+        n = sizeof(_buf) - _len;
+    }
+    memcpy(_buf + _len, buffer, n);
+    _len += n;
+    return size;
+}
+
+void HidPrintBuffer::flush() {
+    if (_dev && _len) {
+        _dev->write(_buf, _len);
+    }
+    _len = 0;
+}
 
 // =====================================================================
 // MinimalGamepad Implementation (TinyUSB)
@@ -304,7 +334,7 @@ SingleConsumerClass SingleConsumer;
 
 void usbHidSetup() {
     HID.addDevice(&Gamepad1, sizeof(_combinedReportDescriptor));
-    USB.VID(0x0E8F);
+    USB.VID(0x39F5);  // Cleveland Software Design's assigned USB-IF vendor ID
     // NOTE: Windows caches DirectInput calibration/layout per VID+PID under
     // HKCU\...\MediaProperties\PrivateProperties\DirectInput\VID_xxxx&PID_xxxx.
     // While the HID report descriptor above is still changing, bump this PID so
@@ -322,4 +352,7 @@ void usbHidStart() {
     Gamepad1.begin();
     BootKeyboard.begin();
     SingleConsumer.begin();
+    HidConfig.setRxBufferSize(1024);  // must precede begin(); begin() only applies its 256-byte default if unset
+    HidConfig.begin();
+    ConfigOut.begin(&HidConfig);
 }

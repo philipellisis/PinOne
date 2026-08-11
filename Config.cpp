@@ -256,11 +256,12 @@ void Config::updateConfigFromSerial() {
 
 
 void Config::printError() {
-  ComSerial.print(F("R,E\r\n"));
+  ConfigOut.print(F("R,E\r\n"));
+  ConfigOut.flush();
 }
 
 void Config::sendConfig() {
-    ComSerial.print(F("C,"));
+    ConfigOut.print(F("C,"));
 
     printConfigArray(toySpecialOption, 63);
     printConfigArray(turnOffState, 63);
@@ -327,21 +328,23 @@ void Config::sendConfig() {
     printIntComma(accelerometerVelocityDecayTime);
     printIntComma(accelerometerVelocityScale);
 
-    ComSerial.print(F("E\r\n"));
+    ConfigOut.print(F("E\r\n"));
+    ConfigOut.flush();
 }
 
 void Config::printComma(unsigned char value) {
-  ComSerial.print(value);
-  ComSerial.print(F(","));
+  ConfigOut.print(value);
+  ConfigOut.print(F(","));
 }
 
 void Config::printIntComma(int value) {
-  ComSerial.print(value);
-  ComSerial.print(F(","));
+  ConfigOut.print(value);
+  ConfigOut.print(F(","));
 }
 
 void Config::printSuccess() {
-  ComSerial.print(F("R,S\r\n"));
+  ConfigOut.print(F("R,S\r\n"));
+  ConfigOut.flush();
 }
 
 unsigned char Config::blockRead() {
@@ -351,8 +354,8 @@ unsigned char Config::blockRead() {
     uint32_t t1 = millis();
     uint32_t t2 = millis();
     while ((t2 - t1) < 5000) {
-      if (ComSerial.available() > 0) {
-        return ComSerial.read();
+      if (HidConfig.available() > 0) {
+        return HidConfig.read();
       }
       t2 = millis();
       delay(50);
