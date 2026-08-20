@@ -48,7 +48,35 @@ void Communication::communicate() {
       break;
     }
   }
+  if (config.legacySerialDofEnabled) {
+    communicateLegacySerial();
+  }
   sendAdmin();
+}
+
+void Communication::communicateLegacySerial() {
+  for (uint8_t i = 0; i < 9; i++) {
+    if (!ComSerial.available()) break;
+    legacyIncomingData[legacyDataLocation] = ComSerial.read();
+    if ((legacyDataLocation == 0 && legacyIncomingData[0] != firstNumber) ||
+        (legacyDataLocation == 1 && legacyIncomingData[1] < bankOffset)) {
+      legacyDataLocation = 0;
+    } else if (legacyDataLocation == 8) {
+      if (legacyIncomingData[1] == connectionNumber) {
+        ComSerial.print(connectedString);
+      } else if (legacyIncomingData[1] >= bankOffset && legacyIncomingData[1] < bankOffset + 9) {
+        // matches the HID path's light-show suppression on real DOF activity
+        if (config.lightShowState != OUTPUT_RECEIVED) {
+          lightShow.setLightsOff();
+        }
+        config.lightShowState = OUTPUT_RECEIVED_RESET_TIMER;
+        updateOutputsFromPacket(legacyIncomingData);
+      }
+      legacyDataLocation = 0;
+    } else {
+      legacyDataLocation++;
+    }
+  }
 }
 
 void Communication::sendAdmin() {
@@ -154,12 +182,16 @@ bool Communication::shouldDelay() {
 }
 
 void Communication::updateOutputs() {
-  uint8_t baseIndex = (incomingData[1] - bankOffset) * 7;
+  updateOutputsFromPacket(incomingData);
+}
+
+void Communication::updateOutputsFromPacket(uint8_t* packet) {
+  uint8_t baseIndex = (packet[1] - bankOffset) * 7;
   for (uint8_t i = 2; i < 9; i++) {
     uint8_t outputIndex = baseIndex + i - 2;
-    if (previousDOFValues[outputIndex] != incomingData[i]) {
-      outputs.updateOutput(outputIndex, incomingData[i]);
-      previousDOFValues[outputIndex] = incomingData[i];
+    if (previousDOFValues[outputIndex] != packet[i]) {
+      outputs.updateOutput(outputIndex, packet[i]);
+      previousDOFValues[outputIndex] = packet[i];
     }
   }
 }

@@ -29,10 +29,16 @@ class Communication {
     uint8_t incomingData[10];
     uint8_t dataLocation = 0;
     void updateOutputs();
+    void updateOutputsFromPacket(uint8_t* packet);
     uint8_t admin = 0;
     void sendAdmin();
     bool shouldDelay();
     void handleDelayedAdmin(uint8_t adminType);
+
+    // Legacy RS232/CDC serial DOF fallback (see Config::legacySerialDofEnabled)
+    uint8_t legacyIncomingData[10];
+    uint8_t legacyDataLocation = 0;
+    void communicateLegacySerial();
 
     uint8_t previousDOFValues[63] = {0};
 };

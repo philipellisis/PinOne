@@ -94,6 +94,13 @@ class Config {
     int accelerometerVelocityDecayTime = 2000;  // velocity half-life, in milliseconds
     int accelerometerVelocityScale = 100;       // INT16 units per mm/s
 
+    // Legacy RS232/CDC serial DOF fallback for un-updated DirectOutput
+    // installs (old DOF only knows the old serial protocol; admin/config
+    // traffic is USB HID only regardless of this setting). Default on for
+    // backward compatibility; disable once DOF is updated, to skip the
+    // extra ComSerial polling in Communication::communicate() entirely.
+    bool legacySerialDofEnabled = true;
+
 
   private:
     unsigned char blockRead();

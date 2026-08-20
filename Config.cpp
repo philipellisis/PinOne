@@ -84,6 +84,8 @@ void Config::init() {
     accelerometerVelocityDecayTime = prefs.getInt("accelVelDecay", accelerometerVelocityDecayTime);
     accelerometerVelocityScale = prefs.getInt("accelVelScale", accelerometerVelocityScale);
 
+    legacySerialDofEnabled = prefs.getBool("legacyDofSer", legacySerialDofEnabled);
+
   } else {
     prefs.end();
     //save default config in case it's never been done before
@@ -166,6 +168,8 @@ void Config::saveConfig() {
     prefs.putInt("accelVelDecay", accelerometerVelocityDecayTime);
     prefs.putInt("accelVelScale", accelerometerVelocityScale);
 
+    prefs.putBool("legacyDofSer", legacySerialDofEnabled);
+
     prefs.putBool("configured", true);
     prefs.end();
 }
@@ -241,6 +245,8 @@ void Config::updateConfigFromSerial() {
     accelerometerVelocityEnabled = blockRead();
     accelerometerVelocityDecayTime = readIntFromByte();
     accelerometerVelocityScale = readIntFromByte();
+
+    legacySerialDofEnabled = blockRead();
 
     if(blockRead() != 42) {
       done = 1;
@@ -327,6 +333,8 @@ void Config::sendConfig() {
     printComma(accelerometerVelocityEnabled);
     printIntComma(accelerometerVelocityDecayTime);
     printIntComma(accelerometerVelocityScale);
+
+    printComma(legacySerialDofEnabled);
 
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();
