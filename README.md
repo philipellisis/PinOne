@@ -37,7 +37,7 @@ PinOne V2 is a complete migration of the PinOne virtual pinball gamepad from the
 - GPIO 26-32 — used by flash/PSRAM on WROOM modules
 
 ### Key Differences from V1
-- **PWM outputs increased from 5 to 8** using ESP32-S3's 8 LEDC channels
+- **PWM outputs increased from 5 to 15** — outputs 0-7 use ESP32-S3's 8 LEDC channels, outputs 8-14 use 7 of the MCPWM peripheral's 12 channels (a separate hardware PWM generator, since LEDC tops out at 8)
 - **3.3V logic** — ESP32-S3 operates at 3.3V (ATmega32U4 was 5V). The 74HC165 shift registers and PCA9685 boards are compatible with 3.3V
 - **Native BLE** — the separate ESP32 Bluetooth module and SPI bridge are eliminated
 - **Native USB** — USB HID via TinyUSB (ESP32-S3 has built-in USB-OTG)
@@ -151,7 +151,7 @@ any ESP32 core reinstall/update):
 ## Feature Summary
 
 - **Inputs**: 24 buttons (shift registers) + 8 virtual buttons, analog plunger, 6-DOF accelerometer
-- **Outputs**: 8 PWM + 7 digital GPIO + 48 PCA9685 channels = 63 total outputs
+- **Outputs**: 15 direct GPIO PWM (8 LEDC + 7 MCPWM) + 48 PCA9685 channels = 63 total outputs
 - **USB HID**: Gamepad (32 buttons, 6 axes, 2 hat switches) + Keyboard + Consumer Control
 - **BLE HID**: Gamepad (Xbox-compatible) + Keyboard — native, no external module
 - **Light Show**: Attract mode with random animations, night mode
