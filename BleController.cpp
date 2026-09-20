@@ -218,6 +218,25 @@ void BleController::update() {
     // only the buttons processKeyboardMode() is already handling), matching
     // the wired-USB behavior in Buttons::sendActualButtonPress().
     processGamepadMode();
+
+    // BLE notifications are unacknowledged at the application layer: NimBLE's
+    // notify() can silently drop a report (e.g. BLE_HS_ENOMEM when two
+    // notifications are issued back-to-back before the link layer flushes the
+    // first, which is easy to hit on a fast button tap), and the return value
+    // was never checked here. A dropped packet permanently desyncs the host
+    // from our state since reports are only sent on change, showing up as a
+    // key stuck down or a press that doesn't register until a later button
+    // change happens to resend it. Periodically re-notify the last known
+    // report (no-arg notify() re-sends the characteristic's stored value) so
+    // a dropped packet self-corrects quickly instead of waiting indefinitely.
+    uint32_t now = millis();
+    if (now - _lastUpdate >= BLE_HEARTBEAT_INTERVAL_MS) {
+        _lastUpdate = now;
+        if (kbdMode == 1 || kbdMode == 2) {
+            _kbReport->notify();
+        }
+        _gpReport->notify();
+    }
 }
 
 void BleController::processKeyboardMode() {
@@ -357,14 +376,23 @@ void BleController::sendKeyboard(uint8_t modifiers, const uint8_t keys[6]) {
     _kbState.modifiers = modifiers;
     memcpy(_kbState.keys, keys, 6);
     _kbReport->setValue((uint8_t*)&_kbState, sizeof(_kbState));
-    _kbReport->notify();
+    // Pass the value directly rather than calling the no-arg notify(): the
+    // no-arg form just marks the characteristic "modified" and notifies
+    // whatever its value happens to be when NimBLE's host task gets around
+    // to it, so a second setValue() issued before that task runs (e.g. a
+    // fast press-then-release, typical for a tapped flipper/action button)
+    // silently overwrites the first state and only the net change is ever
+    // sent. Passing the value builds and transmits a discrete packet for
+    // this exact state immediately, so back-to-back edges can't clobber
+    // each other.
+    _kbReport->notify((uint8_t*)&_kbState, sizeof(_kbState));
 }
 
 void BleController::releaseAllKeys() {
     if (!_kbReport) return;
     _kbState = KeyReport{};
     _kbReport->setValue((uint8_t*)&_kbState, sizeof(_kbState));
-    if (_connected) _kbReport->notify();
+    if (_connected) _kbReport->notify((uint8_t*)&_kbState, sizeof(_kbState));
 }
 
 void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
@@ -380,7 +408,7 @@ void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
     _gpState.rt      = rt;
     _gpState.z       = z;
     _gpReport->setValue((uint8_t*)&_gpState, sizeof(_gpState));
-    _gpReport->notify();
+    _gpReport->notify((uint8_t*)&_gpState, sizeof(_gpState));
 }
 
 bool BleController::getOutputPacket(uint8_t* buf) {
