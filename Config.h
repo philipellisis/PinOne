@@ -101,6 +101,15 @@ class Config {
     // extra ComSerial polling in Communication::communicate() entirely.
     bool legacySerialDofEnabled = true;
 
+    // Diagnostic-only hardware status, set by firmware at boot - not user
+    // configurable and not persisted to preferences. The config tool reads
+    // these (sent at the end of sendConfig()) to tell the user whether each
+    // expansion board / the accelerometer was actually found, and on which
+    // I2C address ("channel") it responded. 0 = not detected.
+    unsigned char expansionBoard1State = 0;
+    unsigned char expansionBoard2State = 0;
+    unsigned char expansionBoard3State = 0;
+    unsigned char mpuState = 0;
 
   private:
     unsigned char blockRead();

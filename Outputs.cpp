@@ -29,6 +29,14 @@ static const mcpwm_io_signals_t MCPWM_SIGNAL_FOR_OUTPUT[NUM_MCPWM_OUTPUTS] = {
   MCPWM0A, MCPWM0B, MCPWM1A, MCPWM1B, MCPWM2A, MCPWM2B, MCPWM0A
 };
 
+// Probes an I2C address for an ACK, without knowing/caring what's there.
+// Used only to report expansion board presence to the config tool - boards
+// are still begin()'d unconditionally below regardless of what this finds.
+static bool i2cDevicePresent(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  return Wire.endTransmission() == 0;
+}
+
 Outputs::Outputs() {
    for (int index = 0; index < numberOutputs; index++) {
     pinMode(outputList[index], OUTPUT);
@@ -58,6 +66,15 @@ void Outputs::init() {
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
 
+  config.expansionBoard1State = i2cDevicePresent(0x40) ? 0x40 : 0;
+  config.expansionBoard2State = i2cDevicePresent(0x41) ? 0x41 : 0;
+  config.expansionBoard3State = i2cDevicePresent(0x42) ? 0x42 : 0;
+
+  // Always call begin() even if a board wasn't detected above - it's what
+  // allocates the library's internal I2C device handle, and later output
+  // writes to a missing board (e.g. from turnOff() below) go through that
+  // handle unconditionally. Skipping begin() left it null and crashed on
+  // the first write to an undetected board.
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
   pwm.setPWMFreq(90);

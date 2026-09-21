@@ -26,6 +26,8 @@ void Accelerometer::init()
     ok = mpu.init();
   }
 
+  config.mpuState = mpu.getAddress();
+
   if (!ok)
   {
     config.accelerometer = 0;

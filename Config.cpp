@@ -336,6 +336,11 @@ void Config::sendConfig() {
 
     printComma(legacySerialDofEnabled);
 
+    printComma(expansionBoard1State);
+    printComma(expansionBoard2State);
+    printComma(expansionBoard3State);
+    printComma(mpuState);
+
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();
 }

@@ -15,6 +15,9 @@ class MPU6050 {
     int getY();
     int getZ();
     void config();
+    // The I2C address ("channel") the chip was found on, or 0 if init()
+    // never found a device to talk to.
+    uint8_t getAddress() const { return initialized ? _addr : 0; }
 
   private:
     bool initialized = false;
