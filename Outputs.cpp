@@ -101,22 +101,22 @@ void Outputs::updateOutput(unsigned char outputId, unsigned char outputValue) {
   if (outputValue > config.maxOutputState[outputId]) {
     outputValue = config.maxOutputState[outputId];
   }
-  if (config.nightMode == true && (config.toySpecialOption[outputId] == NOISY || config.toySpecialOption[outputId] == SHARED)) {
+  if (config.nightMode == true && (config.getOutputType(outputId) == NOISY || config.getOutputType(outputId) == SHARED)) {
     outputValue = 0;
   }
-  if (config.toySpecialOption[outputId] == SHARED && outputValue > 0 && outputValues[outputId] > 0) {
+  if (config.getOutputType(outputId) == SHARED && outputValue > 0 && outputValues[outputId] > 0) {
     for (int i = 0; i < 9; i++) {
-      if(config.toySpecialOption[i] == SHARED && outputValues[i] == 0) {
+      if(config.getOutputType(i) == SHARED && outputValues[i] == 0) {
         outputId = i;
         virtualOutputOn[i] = 1;
         break;
       }
     }
   }
-  if (config.toySpecialOption[outputId] == SHARED && outputValue == 0 && outputId < 10) {
+  if (config.getOutputType(outputId) == SHARED && outputValue == 0 && outputId < 10) {
     if (virtualOutputOn[outputId] == 0) {
       for (int i = 0; i < 9; i++) {
-        if(config.toySpecialOption[i] == SHARED && outputValues[i] > 0 && virtualOutputOn[i] > 0) {
+        if(config.getOutputType(i) == SHARED && outputValues[i] > 0 && virtualOutputOn[i] > 0) {
           updateOutputInternal(i, 0);
           virtualOutputOn[i] = 0;
         }
@@ -129,6 +129,12 @@ void Outputs::updateOutput(unsigned char outputId, unsigned char outputValue) {
 }
 
 void Outputs::updateOutputInternal(unsigned char outputId, unsigned char outputValue) {
+  if (!config.isOutputPwm(outputId)) {
+    // On/off-only output: snap to fully off or fully on (capped at the
+    // configured max, same ceiling a PWM output would respect) instead of
+    // passing an analog value through to hardware that can't dim.
+    outputValue = (outputValue > 0) ? config.maxOutputState[outputId] : 0;
+  }
   outputValues[outputId] = outputValue;
   if (outputValue != 0) {
     timeTurnedOn[outputId] = millis();

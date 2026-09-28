@@ -7,10 +7,10 @@ LightShow::LightShow() {
 
 void LightShow::init() {
   for (uint8_t i = 0; i < 62; i++) {
-    if ((config.toySpecialOption[i] == LIGHT_SHOW_MEDIUM || config.toySpecialOption[i] == LIGHT_SHOW_HIGH) && startLight == 0) {
+    if ((config.getOutputType(i) == LIGHT_SHOW_MEDIUM || config.getOutputType(i) == LIGHT_SHOW_HIGH) && startLight == 0) {
       startLight = i;
     }
-    if ((config.toySpecialOption[i] == LIGHT_SHOW_MEDIUM || config.toySpecialOption[i] == LIGHT_SHOW_HIGH)) {
+    if ((config.getOutputType(i) == LIGHT_SHOW_MEDIUM || config.getOutputType(i) == LIGHT_SHOW_HIGH)) {
       finishLight = i + 1;
     }
   }
@@ -87,7 +87,7 @@ void LightShow::setLightsNormal() {
   for (uint8_t i = currentStartLight; i < currentFinishLight; i++) {
     if (isMediumLight(i)) {
       updateLightValue(i, 60);
-    } else if (config.toySpecialOption[i] == LIGHT_SHOW_HIGH) {
+    } else if (config.getOutputType(i) == LIGHT_SHOW_HIGH) {
       updateLightValue(i, 255);
     }
   }
@@ -163,7 +163,7 @@ void LightShow::transitionToState(uint8_t newState, uint32_t currentTime) {
 }
 
 bool LightShow::isLightShowOutput(int i) {
-  return (config.toySpecialOption[i] == LIGHT_SHOW_MEDIUM || config.toySpecialOption[i] == LIGHT_SHOW_HIGH);
+  return (config.getOutputType(i) == LIGHT_SHOW_MEDIUM || config.getOutputType(i) == LIGHT_SHOW_HIGH);
 }
 
 void LightShow::updateLightValue(uint8_t i, uint8_t value) {
@@ -171,5 +171,5 @@ void LightShow::updateLightValue(uint8_t i, uint8_t value) {
 }
 
 bool LightShow::isMediumLight(int i) {
-  return config.toySpecialOption[i] == LIGHT_SHOW_MEDIUM;
+  return config.getOutputType(i) == LIGHT_SHOW_MEDIUM;
 }

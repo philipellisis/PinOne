@@ -9,8 +9,31 @@ class Config {
     Config();
     void saveConfig();
     void init();
-    //first unsigned char is for noisy toy, other 7 bits can be used for other things
-    unsigned char toySpecialOption[63] = {1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    // Per-output byte, packed so a second array isn't needed to add settings:
+    //  - bits 0-2 (mask 0x07): output_type (see Enums.h) - NONE/NOISY/
+    //    LIGHT_SHOW_MEDIUM/LIGHT_SHOW_HIGH/SHARED
+    //  - bit 3 (mask 0x08): 0 = output is PWM/dimmable (default, matches
+    //    existing behavior), 1 = output is on/off only
+    // Use getOutputType()/setOutputType() and isOutputPwm()/setOutputPwm()
+    // below rather than reading/writing this array directly.
+    unsigned char toySpecialOption[63] = {9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
+    unsigned char getOutputType(unsigned char outputId) const {
+      return toySpecialOption[outputId] & 0x07;
+    }
+    void setOutputType(unsigned char outputId, unsigned char type) {
+      toySpecialOption[outputId] = (toySpecialOption[outputId] & ~0x07) | (type & 0x07);
+    }
+    bool isOutputPwm(unsigned char outputId) const {
+      return (toySpecialOption[outputId] & 0x08) == 0;
+    }
+    void setOutputPwm(unsigned char outputId, bool pwm) {
+      if (pwm) {
+        toySpecialOption[outputId] &= ~0x08;
+      } else {
+        toySpecialOption[outputId] |= 0x08;
+      }
+    }
     unsigned char turnOffState[63] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,26,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
     unsigned char maxOutputState[63] = {255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255};
     unsigned char maxOutputTime[63] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,200,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
