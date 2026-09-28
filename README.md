@@ -1,6 +1,6 @@
-# PinOne V2 — ESP32-S3 Virtual Pinball Controller
+# PinOne Ultra — ESP32-S3 Virtual Pinball Controller
 
-PinOne V2 is a complete migration of the PinOne virtual pinball gamepad from the ATmega32U4 (Arduino Leonardo) to the ESP32-S3. All functionality is retained with the addition of native BLE support (no separate Bluetooth module needed).
+PinOne Ultra is a complete migration of the PinOne virtual pinball gamepad from the ATmega32U4 (Arduino Leonardo) to the ESP32-S3. All functionality is retained with the addition of native BLE support (no separate Bluetooth module needed).
 
 ## Pin Mapping: ATmega32U4 → ESP32-S3
 
@@ -118,7 +118,7 @@ what the sketch sets as the product name — there's no public API on
 
 This only affects that legacy panel's display name; it doesn't affect
 actual input functionality (games/Steam use XInput/RawInput and see the
-real "PinOne V2" product name fine).
+real "PinOne Ultra" product name fine).
 
 **Fix** (a toolchain patch, not part of this repo — must be reapplied after
 any ESP32 core reinstall/update):
@@ -131,7 +131,7 @@ any ESP32 core reinstall/update):
    ```
 3. Change the string literal to the desired name, e.g.:
    ```cpp
-   uint8_t str_index = tinyusb_add_string_descriptor("PinOne V2");
+   uint8_t str_index = tinyusb_add_string_descriptor("PinOne Ultra");
    ```
 4. Recompile and reflash. Windows may keep showing a stale cached name
    until you unplug/replug the device (or, if it's really stuck, delete

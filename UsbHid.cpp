@@ -341,9 +341,9 @@ void usbHidSetup() {
     // Windows builds a fresh cache instead of reusing a stale one (which forces
     // a manual registry-key delete). Freeze it once the descriptor is final.
     USB.PID(0x9208);
-    USB.productName("PinOne V2");
+    USB.productName("PinOne Ultra");
     USB.manufacturerName("PinOne");
-    USB.serialNumber("PinOne-V2-0001");  // stable ID so Windows stops re-enumerating per port
+    USB.serialNumber("PinOne-Ultra-0001");  // stable ID so Windows stops re-enumerating per port
     ComSerial.begin(9600);  // register CDC before USB.begin()
 }
 

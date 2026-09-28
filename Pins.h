@@ -2,7 +2,7 @@
 #define PINS_H
 
 // =============================================================================
-// PinOne V2 - ESP32-S3 Pin Definitions
+// PinOne Ultra - ESP32-S3 Pin Definitions
 // =============================================================================
 // Target: ESP32-S3-DevKitC-1 (WROOM module)
 // Avoided: GPIO 0, 3, 45, 46 (strapping); GPIO 26-32 (flash/PSRAM)
