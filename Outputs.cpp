@@ -188,6 +188,20 @@ void Outputs::updateOutputActual(unsigned char outputId, int outputValueStart, i
   }
 }
 
+void Outputs::pulseOutputs(unsigned char* outputIds, unsigned char count, unsigned char times) {
+  if (times == 0) times = 1;
+  for (uint8_t t = 0; t < times; t++) {
+    for (uint8_t i = 0; i < count; i++) {
+      if (outputIds[i] > 0) updateOutput(outputIds[i] - 1, 255);
+    }
+    delay(100);
+    for (uint8_t i = 0; i < count; i++) {
+      if (outputIds[i] > 0) updateOutput(outputIds[i] - 1, 0);
+    }
+    delay(100);
+  }
+}
+
 void Outputs::sendOutputState() {
   ConfigOut.print(F("O,"));
   for (int i = 0; i < 63; i++) {

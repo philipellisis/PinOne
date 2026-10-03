@@ -86,6 +86,15 @@ void Config::init() {
 
     legacySerialDofEnabled = prefs.getBool("legacyDofSer", legacySerialDofEnabled);
 
+    prefs.getBytes("kbdProf2", buttonKeyboardProfile2, 32);
+    prefs.getBytes("kbdProf3", buttonKeyboardProfile3, 32);
+    prefs.getBytes("kbdProf4", buttonKeyboardProfile4, 32);
+    profileCount = prefs.getUChar("profCount", profileCount);
+    profileSwitchButton = prefs.getUChar("profSwBtn", profileSwitchButton);
+    profileSwitchHoldTime = prefs.getInt("profHoldMs", profileSwitchHoldTime);
+    prefs.getBytes("profNotifyOut", profileNotifyOutputs, 16);
+    prefs.getBytes("profNotifyCnt", profileNotifyPulseCount, 4);
+
   } else {
     prefs.end();
     //save default config in case it's never been done before
@@ -170,6 +179,15 @@ void Config::saveConfig() {
 
     prefs.putBool("legacyDofSer", legacySerialDofEnabled);
 
+    prefs.putBytes("kbdProf2", buttonKeyboardProfile2, 32);
+    prefs.putBytes("kbdProf3", buttonKeyboardProfile3, 32);
+    prefs.putBytes("kbdProf4", buttonKeyboardProfile4, 32);
+    prefs.putUChar("profCount", profileCount);
+    prefs.putUChar("profSwBtn", profileSwitchButton);
+    prefs.putInt("profHoldMs", profileSwitchHoldTime);
+    prefs.putBytes("profNotifyOut", profileNotifyOutputs, 16);
+    prefs.putBytes("profNotifyCnt", profileNotifyPulseCount, 4);
+
     prefs.putBool("configured", true);
     prefs.end();
 }
@@ -247,6 +265,15 @@ void Config::updateConfigFromSerial() {
     accelerometerVelocityScale = readIntFromByte();
 
     legacySerialDofEnabled = blockRead();
+
+    readConfigArray(buttonKeyboardProfile2, 32);
+    readConfigArray(buttonKeyboardProfile3, 32);
+    readConfigArray(buttonKeyboardProfile4, 32);
+    profileCount = blockRead();
+    profileSwitchButton = blockRead();
+    profileSwitchHoldTime = readIntFromByte();
+    readConfigArray(profileNotifyOutputs, 16);
+    readConfigArray(profileNotifyPulseCount, 4);
 
     if(blockRead() != 42) {
       done = 1;
@@ -335,6 +362,15 @@ void Config::sendConfig() {
     printIntComma(accelerometerVelocityScale);
 
     printComma(legacySerialDofEnabled);
+
+    printConfigArray(buttonKeyboardProfile2, 32);
+    printConfigArray(buttonKeyboardProfile3, 32);
+    printConfigArray(buttonKeyboardProfile4, 32);
+    printComma(profileCount);
+    printComma(profileSwitchButton);
+    printIntComma(profileSwitchHoldTime);
+    printConfigArray(profileNotifyOutputs, 16);
+    printConfigArray(profileNotifyPulseCount, 4);
 
     printComma(expansionBoard1State);
     printComma(expansionBoard2State);

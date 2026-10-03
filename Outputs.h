@@ -18,6 +18,7 @@ class Outputs {
     void sendOutputState();
     void checkResetOutputs();
     void turnOff();
+    void pulseOutputs(unsigned char* outputIds, unsigned char count, unsigned char times);
     unsigned char outputList[15] = {40,38,39,14,15,48,13,18,12,11,47,21,45,42,10};
 
   private:

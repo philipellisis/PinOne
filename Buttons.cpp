@@ -29,18 +29,11 @@ void Buttons::init()
 
 bool Buttons::checkChanged()
 {
-  // Check button 9 hold for mode toggle
-  if (button9PressStart && millis() - button9PressStart >= MODE_TOGGLE_HOLD_MS) {
-    // Mode 2 (keyboard + gamepad) is sticky and can't be exited by holding button 9
-    if (config.disableButtonPressWhenKeyboardEnabled != 2) {
-      config.disableButtonPressWhenKeyboardEnabled = !config.disableButtonPressWhenKeyboardEnabled;
-      // Release button 9 from keyboard and gamepad
-      unsigned char keyCode = config.buttonKeyboard[config.buttonRemap[8] - 1];
-      if (keyCode > 0) processKeyboardAction(keyCode, false);
-      Gamepad1.release(config.buttonRemap[8]);
-      lightShow.flashLights();
-    }
-    button9PressStart = millis();
+  // Check profile switch button hold
+  if (config.profileCount > 0 && profileSwitchPressStart && config.profileSwitchHoldTime > 0 &&
+      millis() - profileSwitchPressStart >= (unsigned long)config.profileSwitchHoldTime) {
+    switchProfile();
+    profileSwitchPressStart = millis();
   }
   if (config.buttonPressed)
   {
@@ -99,8 +92,8 @@ void Buttons::readInputs()
 
 bool Buttons::sendButtonPush(unsigned char i, bool currentButtonState)
 {
-  // Check for button 9 mode toggle (5 second hold)
-  checkModeToggle(i, currentButtonState);
+  // Check for profile switch button press/hold
+  checkProfileSwitchButton(i, currentButtonState);
 
   config.updateUSB = true;
 
@@ -194,7 +187,7 @@ void Buttons::sendActualButtonPress(unsigned char buttonOffset, bool currentButt
     return;
   }
 
-  unsigned char keyCode = config.buttonKeyboard[config.buttonRemap[buttonOffset] - 1];
+  unsigned char keyCode = config.getButtonKeyboard(config.buttonRemap[buttonOffset] - 1);
   bool hasKeyMapping = keyCode > 0;
   unsigned char keyboardMode = config.disableButtonPressWhenKeyboardEnabled;
 
@@ -259,7 +252,44 @@ void Buttons::handleMediaKey(unsigned char keyCode, bool pressed) {
   }
 }
 
-void Buttons::checkModeToggle(unsigned char buttonIndex, bool currentButtonState) {
-  if (buttonIndex != 8) return;
-  button9PressStart = currentButtonState ? millis() : 0;
+void Buttons::checkProfileSwitchButton(unsigned char buttonIndex, bool currentButtonState) {
+  if (buttonIndex != config.profileSwitchButton) return;
+  if (currentButtonState) {
+    // Immediate mode (hold time 0): switch once per press, on the rising edge
+    if (config.profileCount > 0 && config.profileSwitchHoldTime == 0 && !profileSwitchImmediateFired) {
+      switchProfile();
+      profileSwitchImmediateFired = true;
+    }
+    profileSwitchPressStart = millis();
+  } else {
+    profileSwitchPressStart = 0;
+    profileSwitchImmediateFired = false;
+  }
+}
+
+void Buttons::switchProfile() {
+  // Release the switch button's current mapping before changing profiles so a key
+  // held across the switch doesn't get stuck down under the old profile's mapping.
+  unsigned char oldKeyCode = config.getButtonKeyboard(config.buttonRemap[config.profileSwitchButton] - 1);
+  if (oldKeyCode > 0) processKeyboardAction(oldKeyCode, false);
+  Gamepad1.release(config.buttonRemap[config.profileSwitchButton]);
+
+  config.activeProfile = (config.activeProfile + 1) % (config.profileCount + 1);
+  notifyProfileChange(config.activeProfile);
+}
+
+void Buttons::notifyProfileChange(unsigned char profileIndex) {
+  unsigned char* outs = &config.profileNotifyOutputs[profileIndex * 4];
+  bool anyConfigured = false;
+  for (uint8_t i = 0; i < 4; i++) {
+    if (outs[i] > 0) {
+      anyConfigured = true;
+      break;
+    }
+  }
+  if (!anyConfigured) {
+    lightShow.flashLights();
+    return;
+  }
+  outputs.pulseOutputs(outs, 4, config.profileNotifyPulseCount[profileIndex]);
 }

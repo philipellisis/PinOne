@@ -246,7 +246,7 @@ void BleController::processKeyboardMode() {
 
     for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
         if (!config.processedButtonState[i]) continue;
-        uint8_t kc = config.buttonKeyboard[i];
+        uint8_t kc = config.getButtonKeyboard(i);
         if (kc == 0x00 || kc == 0xFF) continue;
         if (kc >= 0xE0 && kc <= 0xE7) {
             curMod |= (1 << (kc - 0xE0));
@@ -277,7 +277,7 @@ void BleController::processGamepadMode() {
         // gamepad, matching Buttons::sendActualButtonPress() on the wired
         // path. Mode 0/2 always include every button.
         if (kbdMode == 1) {
-            uint8_t kc = config.buttonKeyboard[i];
+            uint8_t kc = config.getButtonKeyboard(i);
             bool hasKeyMapping = (kc != 0x00 && kc != 0xFF);
             if (hasKeyMapping) continue;
         }

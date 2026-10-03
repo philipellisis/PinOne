@@ -135,7 +135,10 @@ public:
 
 private:
     USBHIDVendor* _dev = nullptr;
-    uint8_t _buf[1700];  // sized for the largest message: full ASCII sendConfig() dump
+    // Sized for the largest message: full ASCII sendConfig() dump. Worst case (every
+    // byte-valued field near 255, e.g. keyboard maps full of high keycodes) is close to
+    // 2.1KB with the input-profile fields included, so this has headroom above that.
+    uint8_t _buf[2560];
     size_t _len = 0;
 };
 
