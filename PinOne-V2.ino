@@ -1,6 +1,8 @@
 #include "UsbHid.h"
 #include <Wire.h>
 #include "Globals.h"
+#include "OutputTask.h"
+#include "Threading.h"
 
 Plunger plunger;
 Buttons buttons;
@@ -11,10 +13,16 @@ Outputs outputs;
 Config config;
 BleController bleController;
 
-unsigned char toggle = 0;
 // Arduino IDE board settings:
 //   Board: ESP32-Arduino -> ESP32-S3-USB-OTG
+//
+// Two tasks run the firmware:
+//  - loop() (input pass): plunger, accelerometer, buttons, USB/BLE reports.
+//  - outputTaskFn() (OutputTask.cpp): DOF/config comms, light show, PWM and
+//    expansion-board writes, IR. Input code hands it work via postOutputCommand().
 void setup() {
+  threadingInit();
+
   // Register HID + CDC and start TinyUSB composite device
   usbHidSetup();   // registers HID descriptors, sets VID/PID, starts ComSerial CDC
   USB.begin();     // starts TinyUSB with composite HID + CDC
@@ -38,22 +46,19 @@ void setup() {
   if (config.bluetoothEnable) {
     bleController.begin();
   }
+
+  outputTaskStart();
 }
 
 void loop() {
-  // Handle input processing (same 4-task rotation as V1)
-  if (toggle == 0) {
-    plunger.plungerRead();
-  } else if (toggle == 1 && config.accelerometerEprom > 0) {
+  // One input pass per loop. Every input is read each time round instead of
+  // on a 4-way rotation, so a button edge or plunger/accelerometer move is
+  // reported on the next pass.
+  ScopedLock inputPass(inputMutex);
+
+  plunger.plungerRead();
+  if (config.accelerometerEprom > 0) {
     accel.accelerometerRead();
-  } else if (toggle == 2) {
-    lightShow.checkSetLights();
-  } else if (toggle == 3) {
-    comm.communicate();
-  }
-  toggle++;
-  if (toggle > 3) {
-    toggle = 0;
   }
 
   // Check for button changes

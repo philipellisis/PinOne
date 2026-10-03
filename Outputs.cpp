@@ -4,7 +4,9 @@
 #include <Wire.h>
 #include "Enums.h"
 #include "Globals.h"
+#include "OutputTask.h"
 #include "Pins.h"
+#include "Threading.h"
 
 #define CONFIG_MCPWM_SUPPRESS_DEPRECATE_WARN 1
 #include "driver/mcpwm.h"
@@ -97,6 +99,10 @@ void Outputs::turnOff() {
   }
 }
 
+void Outputs::requestOutput(unsigned char outputId, unsigned char outputValue) {
+  postOutputCommand(CMD_SET_OUTPUT, outputId, outputValue);
+}
+
 void Outputs::updateOutput(unsigned char outputId, unsigned char outputValue) {
   if (outputValue > config.maxOutputState[outputId]) {
     outputValue = config.maxOutputState[outputId];
@@ -177,6 +183,8 @@ void Outputs::checkResetOutputs() {
 }
 
 void Outputs::updateOutputActual(unsigned char outputId, int outputValueStart, int outputValueFinish) {
+  // Wire is shared with the MPU6050 read on the input pass
+  ScopedLock i2c(i2cMutex);
   if (outputId < 16) {
     pwm.setPWM(outputId, outputValueStart, outputValueFinish);
   }

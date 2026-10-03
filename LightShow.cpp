@@ -68,6 +68,18 @@ void LightShow::checkSetLights() {
 
 }
 
+void LightShow::onButtonPressed() {
+  if (config.lightShowState == WAITING_INPUT || config.lightShowState == IN_RANDOM_MODE_WAITING_INPUT) {
+    config.lightShowState = INPUT_RECEIVED_SET_LIGHTS_HIGH;
+  }
+}
+
+void LightShow::onButtonReleased() {
+  if (config.lightShowState == INPUT_RECEIVED_BUTTON_STILL_PRESSED) {
+    config.lightShowState = INPUT_RECEIVED_SET_LIGHTS_LOW;
+  }
+}
+
 void LightShow::setStartFinishLoops() {
   if (doneSettingLights == true) {
     currentStartLight = startLight;

@@ -15,6 +15,10 @@ class Outputs {
     Outputs();
     void init();
     void updateOutput(unsigned char outputId, unsigned char outputValue);
+    // Non-blocking: queues the change for the output task. Use this from the
+    // input pass; updateOutput() itself does I2C writes and must only run on
+    // the output task (or during setup()).
+    void requestOutput(unsigned char outputId, unsigned char outputValue);
     void sendOutputState();
     void checkResetOutputs();
     void turnOff();

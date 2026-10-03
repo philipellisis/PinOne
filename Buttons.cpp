@@ -4,10 +4,9 @@
 #include "Enums.h"
 #include "UsbHid.h"
 #include "Globals.h"
-#include "IRTransmit.h"
+#include "OutputTask.h"
 
 ButtonReader buttonReader;
-IRTransmit irTransmit;
 
 // Pin 18, A0 = UP
 // Pin 19, A1 = RIGHT
@@ -50,7 +49,7 @@ bool Buttons::checkChanged()
 
 void Buttons::readInputs()
 {
-  uint8_t buttonPushed = 2; // this is set to notify light show that a button press has happened
+  uint8_t buttonPushed = 2; // 1 = a press edge happened, 0 = a release edge, 2 = none
   // read shift register values
   if (config.buttonPressed || buttons.numberButtonsPressed > 0)
   {
@@ -74,19 +73,14 @@ void Buttons::readInputs()
 
     }
   }
+  // The light show state machine belongs to the output task, so hand it the edge
   if (buttonPushed == 1)
   {
-    if (config.lightShowState == WAITING_INPUT || config.lightShowState == IN_RANDOM_MODE_WAITING_INPUT)
-    {
-      config.lightShowState = INPUT_RECEIVED_SET_LIGHTS_HIGH;
-    }
+    postOutputCommand(CMD_BUTTON_PRESSED);
   }
   else if (buttonPushed == 0)
   {
-    if (config.lightShowState == INPUT_RECEIVED_BUTTON_STILL_PRESSED)
-    {
-      config.lightShowState = INPUT_RECEIVED_SET_LIGHTS_LOW;
-    }
+    postOutputCommand(CMD_BUTTON_RELEASED);
   }
 }
 
@@ -152,15 +146,16 @@ bool Buttons::sendButtonPush(unsigned char i, bool currentButtonState)
     {
       if (config.solenoidOutputMap[j] > 0)
       {
-        outputs.updateOutput(config.solenoidOutputMap[j] - 1, currentButtonState ? 255 : 0);
+        outputs.requestOutput(config.solenoidOutputMap[j] - 1, currentButtonState ? 255 : 0);
       }
     }
   }
 
-  // Trigger IR command on button press (rising edge only)
+  // Trigger IR command on button press (rising edge only). IR transmit blocks
+  // until the RMT transfer finishes, so it runs on the output task.
   if (currentButtonState && config.irOutputPin < 15 && config.irButton == i)
   {
-    irTransmit.sendCommand(outputs.outputList[config.irOutputPin]);
+    postOutputCommand(CMD_IR_SEND, config.irOutputPin);
   }
   return currentButtonState;
 }
@@ -279,17 +274,6 @@ void Buttons::switchProfile() {
 }
 
 void Buttons::notifyProfileChange(unsigned char profileIndex) {
-  unsigned char* outs = &config.profileNotifyOutputs[profileIndex * 4];
-  bool anyConfigured = false;
-  for (uint8_t i = 0; i < 4; i++) {
-    if (outs[i] > 0) {
-      anyConfigured = true;
-      break;
-    }
-  }
-  if (!anyConfigured) {
-    lightShow.flashLights();
-    return;
-  }
-  outputs.pulseOutputs(outs, 4, config.profileNotifyPulseCount[profileIndex]);
+  // The pulse/flash blocks for hundreds of ms, so it runs on the output task
+  postOutputCommand(CMD_PROFILE_NOTIFY, profileIndex);
 }

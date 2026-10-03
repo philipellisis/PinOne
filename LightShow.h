@@ -17,6 +17,9 @@ class LightShow {
     void checkSetLights();
     void setLightsOff();
     void flashLights();
+    // Input edges, forwarded from the input pass through the output task
+    void onButtonPressed();
+    void onButtonReleased();
 
   private:
     uint32_t timeInState;

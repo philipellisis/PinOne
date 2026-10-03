@@ -6,6 +6,7 @@
 #include "Accelerometer.h"
 #include "Enums.h"
 #include "Globals.h"
+#include "Threading.h"
 
 Communication::Communication() {
 }
@@ -96,18 +97,23 @@ void Communication::sendAdmin() {
       admin = 0;
       break;
     case GET_CONFIG:
-      // Discard any bytes still queued from the GET_CONFIG admin trigger's
-      // own OUTPUT report (it's always zero-padded out to the full 63-byte
-      // HID payload, even though only 9 bytes were meaningful). Without
-      // this, updateConfigFromSerial()'s exact-byte-count reads would
-      // consume that padding as if it were the start of the config data,
-      // shifting every field read for the rest of the transfer.
-      while (HidConfig.available()) { HidConfig.read(); }
-      config.updateConfigFromSerial();
-      plunger.resetPlunger();
-      config.accelerometerEprom = config.accelerometer;
-      if (config.accelerometerEprom > 0) {
-        accel.init();
+      {
+        // Pause the input pass while config is rewritten, so it never reads
+        // a half-updated profile or accelerometer setting
+        ScopedLock inputPause(inputMutex);
+        // Discard any bytes still queued from the GET_CONFIG admin trigger's
+        // own OUTPUT report (it's always zero-padded out to the full 63-byte
+        // HID payload, even though only 9 bytes were meaningful). Without
+        // this, updateConfigFromSerial()'s exact-byte-count reads would
+        // consume that padding as if it were the start of the config data,
+        // shifting every field read for the rest of the transfer.
+        while (HidConfig.available()) { HidConfig.read(); }
+        config.updateConfigFromSerial();
+        plunger.resetPlunger();
+        config.accelerometerEprom = config.accelerometer;
+        if (config.accelerometerEprom > 0) {
+          accel.init();
+        }
       }
       admin = 0;
       break;
@@ -140,9 +146,9 @@ void Communication::sendAdmin() {
           while (!HidConfig.available() && (millis() - t1 < 5000)) { delay(1); }
           bleData[i] = HidConfig.available() ? HidConfig.read() : 0;
         }
-        // Apply button map directly to BLE controller
+        // Apply button map and name to the BLE controller, which the input pass also uses
+        ScopedLock inputPause(inputMutex);
         bleController.updateButtonMap(bleData, 32);
-        // Apply device name directly to BLE controller
         bleController.updateDeviceName(bleData + 32, 32);
       }
       admin = 0;

@@ -338,12 +338,12 @@ void BleController::applyOutputPackets() {
     while (getOutputPacket(buf)) {
         if (buf[0] == 0xFF) {
             // Single output: [0xFF, outputId, value, ...]
-            outputs.updateOutput(buf[1], buf[2]);
+            outputs.requestOutput(buf[1], buf[2]);
         } else if (buf[0] <= 8) {
             // Bank update: [bankIndex, v0, v1, v2, v3, v4, v5, v6]
             uint8_t baseIndex = buf[0] * 7;
             for (int i = 0; i < 7; i++) {
-                outputs.updateOutput(baseIndex + i, buf[1 + i]);
+                outputs.requestOutput(baseIndex + i, buf[1 + i]);
             }
         }
     }

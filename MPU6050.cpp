@@ -1,6 +1,7 @@
 #include "Arduino.h"
 #include <Wire.h>
 #include "MPU6050.h"
+#include "Threading.h"
 
 // QST QMI8658 — I2C address is 0x6B with SA0 high, 0x6A with SA0 low.
 // init() probes both so either wiring works.
@@ -34,6 +35,8 @@ void MPU6050::writeReg(uint8_t reg, uint8_t val)
 
 bool MPU6050::init(TwoWire *wire)
 {
+    // Wire is shared with the output task's expansion-board writes
+    ScopedLock i2c(i2cMutex);
     _wire = wire;
     initialized = false;
     delay(100);
@@ -78,6 +81,7 @@ bool MPU6050::init(TwoWire *wire)
 void MPU6050::setAccelerometerRange(unsigned char new_range)
 {
     if (!initialized) return;
+    ScopedLock i2c(i2cMutex);
     // Config keeps the ICM42670 encoding (0=±16g, 1=±8g, 2=±4g, 3=±2g);
     // QMI8658 aFS bits[6:4] are reversed (0=±2g … 3=±16g), so translate.
     uint8_t fs = 3 - (new_range & 0x03);
@@ -90,6 +94,7 @@ void MPU6050::read(void)
 {
     if (!initialized) return;
 
+    ScopedLock i2c(i2cMutex);
     _wire->beginTransmission(_addr);
     _wire->write(QMI8658_ACCEL_DATA_X_L);
     _wire->endTransmission(false);
