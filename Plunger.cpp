@@ -4,6 +4,10 @@
 #include "Globals.h"
 #include "Pins.h"
 
+// Plunger output uses the same full signed 16-bit range as the accelerometer axes
+static const float PLUNGER_AXIS_SCALE = 32768.0f;
+static const float PLUNGER_AXIS_MAX   = 32767.0f;
+
 
 Plunger::Plunger() {
   pinMode(PIN_PLUNGER, INPUT); // plunger (analog ADC input)
@@ -29,14 +33,16 @@ void Plunger::plungerRead() {
     return;
   }
 
-  int16_t sensorValue = 0;
+  // Readings are in millivolts (0-3300). Averaging is done in floating point so
+  // the sub-mV fraction survives and the mapping can use it.
+  float sensorValue = 0;
   int16_t newReading;
 
-  // Remove any sensor value that does not agree with the prior value
+  // Remove any sensor value that does not agree with the prior value (+/-32 mV)
   uint8_t goodReadings = 0;
   for (uint8_t i = 0; i < 5; i++) {
-    newReading = (int16_t)(analogReadMilliVolts(PIN_PLUNGER) * 1023L / 3300);
-    if (newReading < truePriorValue + 10 && newReading > truePriorValue - 10) {
+    newReading = (int16_t)analogReadMilliVolts(PIN_PLUNGER);
+    if (newReading < truePriorValue + 32 && newReading > truePriorValue - 32) {
       goodReadings++;
       sensorValue += newReading;
     }
@@ -49,7 +55,7 @@ void Plunger::plungerRead() {
 
   if (config.plungerMoving == true || config.disablePlungerWhenNotInUse == 0) {
     for (uint8_t i = 0; i < config.plungerAverageRead; i++) {
-      sensorValue += (int16_t)(analogReadMilliVolts(PIN_PLUNGER) * 1023L / 3300);
+      sensorValue += (int16_t)analogReadMilliVolts(PIN_PLUNGER);
     }
     sensorValue = sensorValue / (config.plungerAverageRead + 1);
   }
@@ -58,7 +64,7 @@ void Plunger::plungerRead() {
   // this checks that the plunger is sitting stationary. If so, it will enable the accelerometer. It also checks if there is nothing connected. to ensure the accelerometer still works even if the plunger is disconnected
   uint32_t currentTime = millis();
 
-  if ((sensorValue < config.plungerMid + config.plungerRestingDeadZone && sensorValue > config.plungerMid - config.plungerRestingDeadZone) || sensorValue < 10) {
+  if ((sensorValue < config.plungerMid + config.plungerRestingDeadZone && sensorValue > config.plungerMid - config.plungerRestingDeadZone) || sensorValue < 32) {
     if (currentTime - restingStartTime >= config.restingStateMax) {
       // Plunger is in the resting state when the timer exceeds restingStateMax
       config.plungerMoving = false;
@@ -71,30 +77,31 @@ void Plunger::plungerRead() {
 
   // Handle plunger button push logic for max position
   if (config.plungerButtonPush == 1 || config.plungerButtonPush == 3) {
-    updateButtonState(buttonState, sensorValue >= config.plungerMax - 20, true);
-    updateButtonState(buttonState, sensorValue < config.plungerMax - 20, false);
+    updateButtonState(buttonState, sensorValue >= config.plungerMax - 64, true);
+    updateButtonState(buttonState, sensorValue < config.plungerMax - 64, false);
   }
 
   // Handle plunger button push logic for min position
   if (config.plungerButtonPush >= 2) {
-    updateButtonState(buttonState2, sensorValue <= config.plungerMin + 10, true);
-    updateButtonState(buttonState2, sensorValue > config.plungerMin + 10, false);
+    updateButtonState(buttonState2, sensorValue <= config.plungerMin + 32, true);
+    updateButtonState(buttonState2, sensorValue > config.plungerMin + 32, false);
   }
 
+  // Map the calibrated reading to -32767..32767. Readings beyond the calibrated
+  // min/max clamp to full scale.
+  float fraction;
   if (sensorValue <= config.plungerMid) {
-    adjustedValue = static_cast<int8_t>((1 - (float)(sensorValue - config.plungerMin) / (config.plungerMid - config.plungerMin)) * -128);
-    if (adjustedValue > 100) {
-      adjustedValue = -127;
-    }
+    fraction = -(1 - (float)(sensorValue - config.plungerMin) / (config.plungerMid - config.plungerMin));
   } else {
-    adjustedValue = static_cast<int8_t>((float)(sensorValue - config.plungerMid) / (config.plungerMax - config.plungerMid) * 128);
-    if (adjustedValue < -100) {
-      adjustedValue = 127;
-    }
+    fraction = (float)(sensorValue - config.plungerMid) / (config.plungerMax - config.plungerMid);
   }
+  float scaled = fraction * PLUNGER_AXIS_SCALE;
+  if (scaled > PLUNGER_AXIS_MAX) scaled = PLUNGER_AXIS_MAX;
+  if (scaled < -PLUNGER_AXIS_MAX) scaled = -PLUNGER_AXIS_MAX;
+  adjustedValue = static_cast<int16_t>(scaled);
 
 
-  int8_t currentDelayedValue = getDelayedPlungerValue(adjustedValue, currentTime);
+  int16_t currentDelayedValue = getDelayedPlungerValue(adjustedValue, currentTime);
 
   if (priorValue != currentDelayedValue) {
     if (config.plungerMoving) {
@@ -120,7 +127,7 @@ void Plunger::plungerRead() {
   priorTime = currentTime;
 }
 
-int8_t Plunger::getDelayedPlungerValue(int8_t sensorValue, uint32_t currentTime) {
+int16_t Plunger::getDelayedPlungerValue(int16_t sensorValue, uint32_t currentTime) {
 
   if (config.enablePlungerQuickRelease == 0) {
     return sensorValue;
@@ -130,7 +137,7 @@ int8_t Plunger::getDelayedPlungerValue(int8_t sensorValue, uint32_t currentTime)
     config.updateUSB = true;
     return 0;
   }
-  if ((sensorValue < 0 && config.plungerMoving == true && currentPlungerMax > 0 && truePriorValue > 50) || plungerReleased == true) {
+  if ((sensorValue < 0 && config.plungerMoving == true && currentPlungerMax > 0 && truePriorValue > 161) || plungerReleased == true) {
     if (plungerReleased == false) {
       config.lastButtonState[config.plungerLaunchButton] = buttons.sendButtonPush(config.plungerLaunchButton, 1);
     } else {
@@ -159,7 +166,7 @@ void Plunger::updateButtonState(uint8_t& buttonState, bool condition, bool press
   }
 }
 
-void Plunger::updateGamepadZAxis(int8_t value, bool forceUpdate) {
+void Plunger::updateGamepadZAxis(int16_t value, bool forceUpdate) {
   Gamepad1.zAxis(value);
   if (forceUpdate) {
     config.updateUSB = true;
@@ -168,7 +175,7 @@ void Plunger::updateGamepadZAxis(int8_t value, bool forceUpdate) {
 
 void Plunger::sendPlungerState() {
   ConfigOut.print(F("P,"));
-  ConfigOut.print(truePriorValue);
+  ConfigOut.print((int)(truePriorValue + 0.5f));
   ConfigOut.print(F("\r\n"));
   ConfigOut.flush();
 }

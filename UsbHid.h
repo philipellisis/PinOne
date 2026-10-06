@@ -64,7 +64,7 @@ typedef union __attribute__((packed)) {
         int16_t yAxis;
         int16_t rxAxis;
         int16_t ryAxis;
-        int8_t zAxis;
+        int16_t zAxis;
         int8_t rzAxis;
         uint8_t dPad1 : 4;
         uint8_t dPad2 : 4;
@@ -81,7 +81,7 @@ public:
     void yAxis(int16_t value);
     void rxAxis(int16_t value);
     void ryAxis(int16_t value);
-    void zAxis(int8_t value);
+    void zAxis(int16_t value);
     void press(uint8_t button);
     void release(uint8_t button);
     void write();

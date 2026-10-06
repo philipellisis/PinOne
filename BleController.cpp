@@ -305,14 +305,8 @@ void BleController::processGamepadMode() {
     int16_t accelX = accel.getXValue();
     int16_t accelY = accel.getYValue();
 
-    // Scale plunger from -128..127 to -32767..32767
-    int32_t ps = ((int32_t)plungerVal * 32767) / 127;
-    if (ps >  32767) ps =  32767;
-    if (ps < -32767) ps = -32767;
-    int16_t scaledPlunger = (int16_t)ps;
-
     if (curButtons != _prevGpButtons || dpad != _prevDpad ||
-        accelX != _prevLX || accelY != _prevLY || scaledPlunger != _prevPlunger ||
+        accelX != _prevLX || accelY != _prevLY || plungerVal != _prevPlunger ||
         curLT != _prevLT || curRT != _prevRT) {
 
         sendGamepad(
@@ -321,13 +315,13 @@ void BleController::processGamepadMode() {
             (uint16_t)((int32_t)accelY + 32768),
             (uint16_t)(curLT * 64),
             (uint16_t)(curRT * 64),
-            (uint16_t)((int32_t)scaledPlunger + 32768)
+            (uint16_t)((int32_t)plungerVal + 32768)
         );
         _prevGpButtons = curButtons;
         _prevDpad      = dpad;
         _prevLX        = accelX;
         _prevLY        = accelY;
-        _prevPlunger   = scaledPlunger;
+        _prevPlunger   = plungerVal;
         _prevLT        = curLT;
         _prevRT        = curRT;
     }

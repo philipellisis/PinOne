@@ -5,6 +5,11 @@
 
 static Preferences prefs;
 
+// Convert a plunger value from the old 10-bit ADC counts (0-1023) to millivolts (0-3300)
+static int countsToMv(int counts) {
+  return (counts * 3300 + 511) / 1023;
+}
+
 Config::Config() {
 }
 
@@ -80,6 +85,16 @@ void Config::init() {
     lowLatencyMode = prefs.getBool("lowLatency", lowLatencyMode);
     plungerRestingDeadZone = prefs.getUChar("plgRestDZ", plungerRestingDeadZone);
 
+    // Boards saved before the plunger moved to millivolts stored calibration in
+    // 10-bit ADC counts (0-1023). Convert those once here; the next save writes
+    // the "plgUnits" marker so the conversion never runs twice.
+    if (!prefs.isKey("plgUnits") && prefs.isKey("plgMax")) {
+      plungerMax = countsToMv(plungerMax);
+      plungerMin = countsToMv(plungerMin);
+      plungerMid = countsToMv(plungerMid);
+      plungerRestingDeadZone = (unsigned char)min(countsToMv(plungerRestingDeadZone), 255);
+    }
+
     accelerometerVelocityEnabled = prefs.getBool("accelVelEn", accelerometerVelocityEnabled);
     accelerometerVelocityDecayTime = prefs.getInt("accelVelDecay", accelerometerVelocityDecayTime);
     accelerometerVelocityScale = prefs.getInt("accelVelScale", accelerometerVelocityScale);
@@ -116,6 +131,7 @@ void Config::saveConfig() {
     prefs.putInt("plgMax", plungerMax);
     prefs.putInt("plgMin", plungerMin);
     prefs.putInt("plgMid", plungerMid);
+    prefs.putUChar("plgUnits", 1);  // 1 = plunger calibration in millivolts
 
     prefs.putBytes("solBtnMap", solenoidButtonMap, 4);
     prefs.putBytes("solOutMap", solenoidOutputMap, 4);

@@ -37,9 +37,10 @@ class Config {
     unsigned char turnOffState[63] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,26,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
     unsigned char maxOutputState[63] = {255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255};
     unsigned char maxOutputTime[63] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,200,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-    int plungerMax = 842;
-    int plungerMin = 61;
-    int plungerMid = 203;
+    // Plunger calibration is stored in millivolts (0-3300 ADC range)
+    int plungerMax = 2716;
+    int plungerMin = 197;
+    int plungerMid = 655;
     unsigned char solenoidButtonMap[4] = {0};
     unsigned char solenoidOutputMap[4] = {0};
     unsigned char irOutputPin = 255;
@@ -77,7 +78,7 @@ class Config {
     void setPlunger();
     void setAccelerometer();
     bool lowLatencyMode = false;
-    unsigned char plungerRestingDeadZone = 50;
+    unsigned char plungerRestingDeadZone = 161;  // mV
 
     unsigned char lightShowState = 1;
 
