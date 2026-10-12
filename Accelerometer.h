@@ -27,6 +27,8 @@ class Accelerometer {
     void updateRxAxis();
     void updateRyAxis();
     void resetVelocity();
+    void zeroOutputs();
+    void zeroVelocityOutput();
 
   private:
     int16_t xValueOffset = 0;
@@ -35,7 +37,6 @@ class Accelerometer {
     int16_t yValue;
     int16_t priorXValue = 0;
     int16_t priorYValue = 0;
-    bool recentered = false;
     bool pinsFacingUp = false;
     bool mountedOnSide = false;
     // Axis output scale (32767 / max), the velocity integrator's constants, and
@@ -56,11 +57,12 @@ class Accelerometer {
     int16_t localMaxY = 0;
     uint8_t tiltSuppressTime = 0;
 
-    // Auto-centering: while the cabinet is at rest the zero offsets slowly
-    // track the sensor's resting reading, so tilt changes and thermal drift
-    // don't leave a permanent bias on the axes.
-    unsigned long stillSinceMicros = 0;
+    // Auto-centering: the zero offsets continuously drift toward the sensor's
+    // current reading, so tilt changes, resting position and thermal drift
+    // relax back to center. The fractional remainder is carried between steps.
     unsigned long lastAutoCenterMicros = 0;
+    float xDriftRemainder = 0.0f;
+    float yDriftRemainder = 0.0f;
     void autoCenter(int16_t rawX, int16_t rawY);
 
     // Velocity-based accelerometer input. The velocity is tracked in mm/s,

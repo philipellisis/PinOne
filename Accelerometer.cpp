@@ -63,38 +63,38 @@ void Accelerometer::centerAccelerometer()
   // time doesn't reflect real cabinet motion; reset the velocity integrator
   // rather than let it treat this gap as a huge, bogus time step.
   resetVelocity();
-  stillSinceMicros = 0;
+  xDriftRemainder = 0.0f;
+  yDriftRemainder = 0.0f;
 }
 
-// Slowly walk the zero offsets toward the sensor's resting reading when the
-// cabinet has been still. "Still" means both axes stay inside a band a few
-// times wider than the dead zone for AUTO_CENTER_STILL_US; any reading outside
-// the band (a real nudge) restarts the wait, so nudges are never absorbed.
+// Continuously drift the zero offsets toward the sensor's current reading, so
+// any steady offset (a tilt change, a board resting on its side, thermal drift)
+// slowly relaxes back to the 0,0 position. This acts as a very slow high-pass
+// filter: a nudge is over in a fraction of a second, so only a few percent of
+// it is absorbed, while anything that lasts for several seconds is centered out.
+//
+// Each step closes STEP / TIME_CONSTANT of the remaining distance, so the
+// position decays exponentially with a time constant of AUTO_CENTER_TIME_CONSTANT_US.
+// The fractional part is carried between steps so small errors still converge.
 void Accelerometer::autoCenter(int16_t rawX, int16_t rawY) {
-  const unsigned long AUTO_CENTER_STILL_US = 500000UL;  // must be still this long
-  const unsigned long AUTO_CENTER_STEP_US = 20000UL;    // then move 1 count per step
-  const int16_t AUTO_CENTER_MIN_BAND = 40;
-
-  int16_t band = config.accelerometerDeadZone * 3;
-  if (band < AUTO_CENTER_MIN_BAND) band = AUTO_CENTER_MIN_BAND;
+  const unsigned long AUTO_CENTER_STEP_US = 20000UL;               // update every 20 ms
+  const float AUTO_CENTER_TIME_CONSTANT_US = 3000000.0f;           // ~3 s to close 63% of the gap
+  const float stepFraction = AUTO_CENTER_STEP_US / AUTO_CENTER_TIME_CONSTANT_US;
 
   unsigned long now = micros();
-  if (abs(rawX) > band || abs(rawY) > band) {
-    stillSinceMicros = 0;
-    return;
-  }
-  if (stillSinceMicros == 0) {
-    stillSinceMicros = now;
-    return;
-  }
-  if (now - stillSinceMicros < AUTO_CENTER_STILL_US) return;
   if (now - lastAutoCenterMicros < AUTO_CENTER_STEP_US) return;
   lastAutoCenterMicros = now;
 
-  if (rawX > 0) xValueOffset++;
-  else if (rawX < 0) xValueOffset--;
-  if (rawY > 0) yValueOffset++;
-  else if (rawY < 0) yValueOffset--;
+  xDriftRemainder += rawX * stepFraction;
+  yDriftRemainder += rawY * stepFraction;
+
+  int16_t xStep = static_cast<int16_t>(xDriftRemainder);  // truncates toward zero
+  int16_t yStep = static_cast<int16_t>(yDriftRemainder);
+  xDriftRemainder -= xStep;
+  yDriftRemainder -= yStep;
+
+  xValueOffset += xStep;
+  yValueOffset += yStep;
 }
 
 void Accelerometer::resetAccelerometer()
@@ -134,19 +134,10 @@ void Accelerometer::resetAccelerometer()
 void Accelerometer::accelerometerRead()
 {
   if (config.plungerMoving == true && config.disableAccelOnPlungerMove == 1) {
+    // The plunger's own motion shakes the cabinet, so hold every axis at zero
+    // for as long as it is moving rather than leaving the last reading stuck.
+    zeroOutputs();
     return;
-  }
-  if (config.lightShowState == IN_RANDOM_MODE_WAITING_INPUT)
-  {
-    if (recentered == false)
-    {
-      centerAccelerometer();
-      recentered = true;
-    }
-  }
-  else
-  {
-    recentered = false;
   }
   /* Get new sensor events with the readings */
   mpu.read();
@@ -179,11 +170,35 @@ void Accelerometer::accelerometerRead()
     updateRxAxis();
     updateRyAxis();
   }
-  else if (priorRxValue != 0 || priorRyValue != 0)
+  else
   {
-    // velocity output was just turned off - zero the axes rather than
-    // leaving them stuck at their last reported value
-    resetVelocity();
+    // velocity output is turned off - make sure the axes aren't left stuck at
+    // their last reported value
+    zeroVelocityOutput();
+  }
+}
+
+// Force every accelerometer output to zero: position, velocity, and any held
+// tilt button. Only sends a USB update for outputs that weren't already zero,
+// so calling this every loop while gated costs nothing once settled.
+void Accelerometer::zeroOutputs() {
+  xValue = 0;
+  yValue = 0;
+
+  // with zero input this releases a tilt button that was being held
+  processTiltButton();
+
+  updateXAxis();
+  updateYAxis();
+  zeroVelocityOutput();
+}
+
+// Clear the velocity integrator and zero the Rx/Ry axes if they aren't already
+void Accelerometer::zeroVelocityOutput() {
+  // also clears the time baseline, so the gap isn't integrated when reads resume
+  resetVelocity();
+
+  if (priorRxValue != 0 || priorRyValue != 0) {
     Gamepad1.rxAxis(0);
     Gamepad1.ryAxis(0);
     priorRxValue = 0;
