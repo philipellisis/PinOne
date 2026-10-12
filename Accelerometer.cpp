@@ -380,6 +380,10 @@ void Accelerometer::sendAccelerometerState()
   ConfigOut.print(xValue);
   ConfigOut.print(F(","));
   ConfigOut.print(yValue);
+  // Which source the Y reading above came from, so the config tool knows
+  // whether it can preview unsaved orientation changes from these values.
+  ConfigOut.print(F(","));
+  ConfigOut.print(mountedOnSide ? 1 : 0);
   ConfigOut.print(F("\r\n"));
   ConfigOut.flush();
 }
