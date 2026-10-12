@@ -32,6 +32,10 @@ void Config::init() {
     prefs.getBytes("solOutMap", solenoidOutputMap, 4);
 
     orientation = prefs.getUChar("orient", orientation);
+    // Boards saved before rotation calibration only have the 90 degree
+    // orientation in the low two bits; 18 steps of 5 degrees = 90 degrees.
+    orientationRotation = prefs.getUChar("orientRot", (orientation & 3) * 18) % 72;
+    axisRotationOffset = prefs.getUChar("axisRotOff", 0) % 72;
     accelerometer = prefs.getUChar("accel", accelerometer);
     accelerometerEprom = accelerometer;
 
@@ -137,6 +141,8 @@ void Config::saveConfig() {
     prefs.putBytes("solOutMap", solenoidOutputMap, 4);
 
     prefs.putUChar("orient", orientation);
+    prefs.putUChar("orientRot", orientationRotation);
+    prefs.putUChar("axisRotOff", axisRotationOffset);
     prefs.putUChar("accel", accelerometer);
 
     prefs.putUChar("accelSens", accelerometerSensitivity);
@@ -291,6 +297,9 @@ void Config::updateConfigFromSerial() {
     readConfigArray(profileNotifyOutputs, 16);
     readConfigArray(profileNotifyPulseCount, 4);
 
+    orientationRotation = blockRead() % 72;
+    axisRotationOffset = blockRead() % 72;
+
     if(blockRead() != 42) {
       done = 1;
     }
@@ -387,6 +396,9 @@ void Config::sendConfig() {
     printIntComma(profileSwitchHoldTime);
     printConfigArray(profileNotifyOutputs, 16);
     printConfigArray(profileNotifyPulseCount, 4);
+
+    printComma(orientationRotation);
+    printComma(axisRotationOffset);
 
     printComma(expansionBoard1State);
     printComma(expansionBoard2State);

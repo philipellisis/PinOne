@@ -99,13 +99,34 @@ void Accelerometer::autoCenter(int16_t rawX, int16_t rawY) {
 
 void Accelerometer::resetAccelerometer()
 {
-  if (config.orientation > 7) {
-    orientation = config.orientation - 8;
-  } else {
-    orientation = config.orientation;
-  }
+  // Everything derived from config is computed here, once, rather than per
+  // sample. This runs at boot and again after every config save (see the
+  // GET_CONFIG handler in Communication.cpp).
+  pinsFacingUp = (config.orientation & 4) != 0;
+  mountedOnSide = (config.orientation & 8) != 0;
+
+  // Rotation is stored in 5 degree steps. Precompute the trig so the read path
+  // doesn't need to evaluate it every sample.
+  // DEG_TO_RAD comes from Arduino.h
+  float angleX = (config.orientationRotation % 72) * 5.0f * DEG_TO_RAD;
+  float angleY = ((config.orientationRotation + config.axisRotationOffset) % 72) * 5.0f * DEG_TO_RAD;
+  cosX = cosf(angleX);
+  sinX = sinf(angleX);
+  cosY = cosf(angleY);
+  sinY = sinf(angleY);
+
   localMax = config.accelerometerMax;
   localMaxY = config.accelerometerMaxY;
+  xAxisScale = localMax != 0 ? 32767.0f / localMax : 0.0f;
+  yAxisScale = localMaxY != 0 ? 32767.0f / localMaxY : 0.0f;
+
+  // Velocity integration constants: counts -> mm/s^2, and the decay rate as
+  // halvings per second (0 disables decay).
+  velocityCountsToMmPerSec2 = (getGRange() / 32768.0f) * 9806.65f;
+  velocityHalvingsPerSec = config.accelerometerVelocityDecayTime > 0
+    ? 1000.0f / static_cast<float>(config.accelerometerVelocityDecayTime)
+    : 0.0f;
+
   mpu.setAccelerometerRange(config.accelerometerSensitivity);
   centerAccelerometer();
 }
@@ -134,8 +155,8 @@ void Accelerometer::accelerometerRead()
   int16_t rawY = getRawAccelValueY() - yValueOffset;
   autoCenter(rawX, rawY);
 
-  xValue = floor((getRawAccelValue() - xValueOffset));
-  yValue = floor((getRawAccelValueY() - yValueOffset));
+  xValue = rawX;
+  yValue = rawY;
 
   if (abs(xValue) < config.accelerometerDeadZone)
   {
@@ -181,7 +202,7 @@ int16_t Accelerometer::getRawAccelValue() {
 // fed by the sensor's Y channel, and that's the channel Z replaces. Z is negated
 // so the result matches the original x = Z behaviour after the pre-rotation.
 int16_t Accelerometer::getRawAccelValueY() {
-  return (config.orientation > 7) ? -mpu.getZ() : mpu.getY();
+  return mountedOnSide ? -mpu.getZ() : mpu.getY();
 }
 
 void Accelerometer::applyOrientationTransform(int16_t& x, int16_t& y) {
@@ -192,30 +213,25 @@ void Accelerometer::applyOrientationTransform(int16_t& x, int16_t& y) {
   x = -y;
   y = rawX;
 
-  int16_t temp = x;
-  switch (orientation) {
-    case RIGHT:
-      x = -y; y = temp;
-      break;
-    case FORWARD:
-      x = -x; y = -y;
-      break;
-    case LEFT:
-      x = y; y = -temp;
-      break;
-    case UP_BACK:
-      x = -x;
-      break;
-    case UP_RIGHT:
-      x = -y; y = -temp;
-      break;
-    case UP_FORWARD:
-      y = -y;
-      break;
-    case UP_LEFT:
-      x = y; y = temp;
-      break;
+  // Pins facing up mirrors the board before it is rotated.
+  if (pinsFacingUp) {
+    x = -x;
   }
+
+  // Rotate by the calibrated board orientation. The X output uses the board
+  // rotation and the Y output uses board rotation + axis offset, so the two
+  // axes can be calibrated independently. With no offset this is an ordinary
+  // rotation, and 0/90/180/270 degrees match the old fixed orientations.
+  float fx = static_cast<float>(x);
+  float fy = static_cast<float>(y);
+  x = clampToInt16(fx * cosX - fy * sinX);
+  y = clampToInt16(fx * sinY + fy * cosY);
+}
+
+int16_t Accelerometer::clampToInt16(float value) {
+  if (value > 32767.0f) return 32767;
+  if (value < -32767.0f) return -32767;
+  return static_cast<int16_t>(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
 void Accelerometer::processTiltButton() {
@@ -257,7 +273,7 @@ void Accelerometer::processTiltButton() {
 
 void Accelerometer::updateXAxis() {
   if (priorXValue != xValue) {
-    Gamepad1.xAxis(static_cast<int16_t>(static_cast<float>(xValue) / localMax * 32767));
+    Gamepad1.xAxis(static_cast<int16_t>(static_cast<float>(xValue) * xAxisScale));
     priorXValue = xValue;
     config.updateUSB = true;
   }
@@ -265,7 +281,7 @@ void Accelerometer::updateXAxis() {
 
 void Accelerometer::updateYAxis() {
   if (priorYValue != yValue) {
-    Gamepad1.yAxis(static_cast<int16_t>(static_cast<float>(yValue) / localMaxY * 32767));
+    Gamepad1.yAxis(static_cast<int16_t>(static_cast<float>(yValue) * yAxisScale));
     priorYValue = yValue;
     config.updateUSB = true;
   }
@@ -314,15 +330,16 @@ void Accelerometer::updateVelocity() {
     return;
   }
 
-  if (config.accelerometerVelocityDecayTime > 0) {
-    float decayFactor = pow(0.5f, dt / (static_cast<float>(config.accelerometerVelocityDecayTime) / 1000.0f));
+  // half-life decay: 0.5^(dt / halfLife) == 2^(-dt * halvingsPerSec)
+  if (velocityHalvingsPerSec > 0.0f) {
+    float decayFactor = exp2f(-dt * velocityHalvingsPerSec);
     velocityX *= decayFactor;
     velocityY *= decayFactor;
   }
 
-  // convert a raw (int16 full-scale) acceleration reading to mm/s^2, then
-  // to an incremental mm/s contribution over this time step
-  float convFactor = (getGRange() / 32768.0f) * 9806.65f * dt;
+  // convert a raw (int16 full-scale) acceleration reading to an incremental
+  // mm/s contribution over this time step
+  float convFactor = velocityCountsToMmPerSec2 * dt;
   velocityX += static_cast<float>(xValue) * convFactor;
   velocityY += static_cast<float>(yValue) * convFactor;
 }

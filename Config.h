@@ -48,7 +48,15 @@ class Config {
     unsigned char irProtocol = 0;
     uint32_t irCode = 0;
     unsigned char irBits = 0;
+    // Bit 4 = pins facing up, bit 8 = mounted on side. The low two bits are the
+    // legacy 90 degree orientation, now superseded by orientationRotation.
     unsigned char orientation = 0;
+    // Board rotation for the X/Y axes, in 5 degree steps (0-71 = 0-355 degrees).
+    // 0 = USB facing back, 18 = right, 36 = front, 54 = left.
+    unsigned char orientationRotation = 0;
+    // Extra rotation added to the Y (or Z, when mounted on side) axis only,
+    // in 5 degree steps (0-71), to calibrate the two axes independently.
+    unsigned char axisRotationOffset = 0;
     unsigned char accelerometerEprom = 0;
     unsigned char accelerometer = 1;
     unsigned char accelerometerSensitivity = 0;
