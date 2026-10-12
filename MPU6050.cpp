@@ -39,6 +39,7 @@ bool MPU6050::init(TwoWire *wire)
     ScopedLock i2c(i2cMutex);
     _wire = wire;
     initialized = false;
+    haveSample = false;
     delay(100);
 
     _addr = QMI8658_I2C_ADDR_HI;
@@ -88,6 +89,7 @@ void MPU6050::setAccelerometerRange(unsigned char new_range)
     uint8_t current = readReg(QMI8658_CTRL2);
     writeReg(QMI8658_CTRL2, (current & 0x8F) | (fs << 4));
     accelRange = new_range;
+    haveSample = false;  // counts-per-g changed; old samples aren't comparable
 }
 
 void MPU6050::read(void)
@@ -110,13 +112,38 @@ void MPU6050::read(void)
     int16_t newY = (int16_t)(buffer[3] << 8 | buffer[2]);
     int16_t newZ = (int16_t)(buffer[5] << 8 | buffer[4]);
 
-    // Reject single-sample spikes: discard any reading that jumps more than
-    // SPIKE_THRESH counts from the last accepted value in one 10ms window.
-    // At ±16g / 16-bit, full scale is 32768 counts; 4000 ≈ ±2g per sample.
-    const int16_t SPIKE_THRESH = 4000;
-    if (abs(newX - rawAccX) < SPIKE_THRESH) rawAccX = newX;
-    if (abs(newY - rawAccY) < SPIKE_THRESH) rawAccY = newY;
-    if (abs(newZ - rawAccZ) < SPIKE_THRESH) rawAccZ = newZ;
+    if (!haveSample)
+    {
+        rawAccX = newX;
+        rawAccY = newY;
+        rawAccZ = newZ;
+        haveSample = true;
+        return;
+    }
+
+    filterSpike(newX, rawAccX, spikeCount[0]);
+    filterSpike(newY, rawAccY, spikeCount[1]);
+    filterSpike(newZ, rawAccZ, spikeCount[2]);
+}
+
+// Reject single-sample spikes: discard a reading that jumps more than ~2g from
+// the last accepted value. The threshold scales with the selected range since
+// counts per g change with it (2048/g at ±16g up to 16384/g at ±2g). A real
+// step change (hard tilt, bump that doesn't return) would otherwise be rejected
+// forever, so after MAX_REJECTED consecutive rejections the new level is accepted.
+bool MPU6050::filterSpike(int newVal, int &held, uint8_t &rejected)
+{
+    const uint8_t MAX_REJECTED = 3;
+    const int spikeThresh = 4096 << (accelRange & 0x03);  // ≈2g in counts
+
+    if (abs(newVal - held) < spikeThresh || rejected >= MAX_REJECTED)
+    {
+        held = newVal;
+        rejected = 0;
+        return true;
+    }
+    rejected++;
+    return false;
 }
 
 int MPU6050::getX() { return rawAccX; }

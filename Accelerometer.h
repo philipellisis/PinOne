@@ -19,6 +19,7 @@ class Accelerometer {
     int16_t getYValue() const { return yValue; }
     void applyOrientationTransform(int16_t& x, int16_t& y);
     int16_t getRawAccelValue();
+    int16_t getRawAccelValueY();
     void processTiltButton();
     void updateXAxis();
     void updateYAxis();
@@ -39,6 +40,13 @@ class Accelerometer {
     int16_t localMax = 0;
     int16_t localMaxY = 0;
     uint8_t tiltSuppressTime = 0;
+
+    // Auto-centering: while the cabinet is at rest the zero offsets slowly
+    // track the sensor's resting reading, so tilt changes and thermal drift
+    // don't leave a permanent bias on the axes.
+    unsigned long stillSinceMicros = 0;
+    unsigned long lastAutoCenterMicros = 0;
+    void autoCenter(int16_t rawX, int16_t rawY);
 
     // Velocity-based accelerometer input. The velocity is tracked in mm/s,
     // by integrating the (centered, orientation-corrected) acceleration

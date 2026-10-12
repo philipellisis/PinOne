@@ -52,7 +52,7 @@ void Accelerometer::centerAccelerometer()
   {
     mpu.read();
     offsetxCounter += getRawAccelValue();
-    offsetycounter += mpu.getY();
+    offsetycounter += getRawAccelValueY();
 
     count++;
   }
@@ -63,6 +63,38 @@ void Accelerometer::centerAccelerometer()
   // time doesn't reflect real cabinet motion; reset the velocity integrator
   // rather than let it treat this gap as a huge, bogus time step.
   resetVelocity();
+  stillSinceMicros = 0;
+}
+
+// Slowly walk the zero offsets toward the sensor's resting reading when the
+// cabinet has been still. "Still" means both axes stay inside a band a few
+// times wider than the dead zone for AUTO_CENTER_STILL_US; any reading outside
+// the band (a real nudge) restarts the wait, so nudges are never absorbed.
+void Accelerometer::autoCenter(int16_t rawX, int16_t rawY) {
+  const unsigned long AUTO_CENTER_STILL_US = 500000UL;  // must be still this long
+  const unsigned long AUTO_CENTER_STEP_US = 20000UL;    // then move 1 count per step
+  const int16_t AUTO_CENTER_MIN_BAND = 40;
+
+  int16_t band = config.accelerometerDeadZone * 3;
+  if (band < AUTO_CENTER_MIN_BAND) band = AUTO_CENTER_MIN_BAND;
+
+  unsigned long now = micros();
+  if (abs(rawX) > band || abs(rawY) > band) {
+    stillSinceMicros = 0;
+    return;
+  }
+  if (stillSinceMicros == 0) {
+    stillSinceMicros = now;
+    return;
+  }
+  if (now - stillSinceMicros < AUTO_CENTER_STILL_US) return;
+  if (now - lastAutoCenterMicros < AUTO_CENTER_STEP_US) return;
+  lastAutoCenterMicros = now;
+
+  if (rawX > 0) xValueOffset++;
+  else if (rawX < 0) xValueOffset--;
+  if (rawY > 0) yValueOffset++;
+  else if (rawY < 0) yValueOffset--;
 }
 
 void Accelerometer::resetAccelerometer()
@@ -98,8 +130,12 @@ void Accelerometer::accelerometerRead()
   /* Get new sensor events with the readings */
   mpu.read();
 
+  int16_t rawX = getRawAccelValue() - xValueOffset;
+  int16_t rawY = getRawAccelValueY() - yValueOffset;
+  autoCenter(rawX, rawY);
+
   xValue = floor((getRawAccelValue() - xValueOffset));
-  yValue = floor((mpu.getY() - yValueOffset));
+  yValue = floor((getRawAccelValueY() - yValueOffset));
 
   if (abs(xValue) < config.accelerometerDeadZone)
   {
@@ -136,7 +172,16 @@ void Accelerometer::accelerometerRead()
 }
 
 int16_t Accelerometer::getRawAccelValue() {
-  return (config.orientation > 7) ? mpu.getZ() : mpu.getX();
+  return mpu.getX();
+}
+
+// "Mounted on side" swaps Z in for the sensor axis that is vertical (carrying
+// gravity). applyOrientationTransform() pre-rotates the readings by 90 degrees
+// (x = -y, y = x), so the slot that used to be the original board's "x" is now
+// fed by the sensor's Y channel, and that's the channel Z replaces. Z is negated
+// so the result matches the original x = Z behaviour after the pre-rotation.
+int16_t Accelerometer::getRawAccelValueY() {
+  return (config.orientation > 7) ? -mpu.getZ() : mpu.getY();
 }
 
 void Accelerometer::applyOrientationTransform(int16_t& x, int16_t& y) {
@@ -313,7 +358,7 @@ void Accelerometer::sendAccelerometerState()
   ConfigOut.print(F("A,"));
   ConfigOut.print((getRawAccelValue() - xValueOffset));
   ConfigOut.print(F(","));
-  ConfigOut.print((mpu.getY() - yValueOffset));
+  ConfigOut.print((getRawAccelValueY() - yValueOffset));
   ConfigOut.print(F(","));
   ConfigOut.print(xValue);
   ConfigOut.print(F(","));

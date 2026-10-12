@@ -21,8 +21,13 @@ class MPU6050 {
 
   private:
     bool initialized = false;
-    int rawAccX, rawAccY, rawAccZ;
+    int rawAccX = 0, rawAccY = 0, rawAccZ = 0;
     int accelRange = 0;
+    // Spike filter state: the first sample after init/range change is always
+    // accepted, and a run of rejected samples is treated as a real change.
+    bool haveSample = false;
+    uint8_t spikeCount[3] = {0, 0, 0};
+    bool filterSpike(int newVal, int &held, uint8_t &rejected);
     TwoWire *_wire = nullptr;
     uint8_t _addr = 0x6B;
 

@@ -35,23 +35,7 @@ void Plunger::plungerRead() {
 
   // Readings are in millivolts (0-3300). Averaging is done in floating point so
   // the sub-mV fraction survives and the mapping can use it.
-  float sensorValue = 0;
-  int16_t newReading;
-
-  // Remove any sensor value that does not agree with the prior value (+/-32 mV)
-  uint8_t goodReadings = 0;
-  for (uint8_t i = 0; i < 5; i++) {
-    newReading = (int16_t)analogReadMilliVolts(PIN_PLUNGER);
-    if (newReading < truePriorValue + 32 && newReading > truePriorValue - 32) {
-      goodReadings++;
-      sensorValue += newReading;
-    }
-  }
-  if (goodReadings > 0) {
-    sensorValue = sensorValue / (goodReadings);
-  } else {
-    sensorValue = newReading;
-  }
+  float sensorValue = (int16_t)analogReadMilliVolts(PIN_PLUNGER);
 
   if (config.plungerMoving == true || config.disablePlungerWhenNotInUse == 0) {
     for (uint8_t i = 0; i < config.plungerAverageRead; i++) {
