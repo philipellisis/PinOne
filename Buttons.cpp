@@ -144,7 +144,7 @@ bool Buttons::sendButtonPush(unsigned char i, bool currentButtonState)
   {
     if (config.solenoidButtonMap[j] > 0 && config.solenoidButtonMap[j] - 1 == i)
     {
-      if (config.solenoidOutputMap[j] > 0)
+      if (config.solenoidOutputMap[j] > 0 && !(currentButtonState && isButtonLocked(i)))
       {
         outputs.requestOutput(config.solenoidOutputMap[j] - 1, currentButtonState ? 255 : 0);
       }
@@ -153,11 +153,20 @@ bool Buttons::sendButtonPush(unsigned char i, bool currentButtonState)
 
   // Trigger IR command on button press (rising edge only). IR transmit blocks
   // until the RMT transfer finishes, so it runs on the output task.
-  if (currentButtonState && config.irOutputPin < 15 && config.irButton == i)
+  if (currentButtonState && config.irOutputPin < 15 && config.irButton == i && !isButtonLocked(i))
   {
     postOutputCommand(CMD_IR_SEND, config.irOutputPin);
   }
   return currentButtonState;
+}
+
+// True when the button lock is engaged and this button isn't in the allowed set.
+// The lock button itself is never blocked, so it can always unlock.
+bool Buttons::isButtonLocked(unsigned char button)
+{
+  if (!config.buttonLockActive || button > 31) return false;
+  if (config.buttonLockButton < 64 && button == config.buttonLockButton % 32) return false;
+  return ((config.buttonLockAllowedMask >> button) & 1) == 0;
 }
 
 void Buttons::sendActualButtonPress(unsigned char buttonOffset, bool currentButtonState)
@@ -179,6 +188,27 @@ void Buttons::sendActualButtonPress(unsigned char buttonOffset, bool currentButt
       }
     }
     // Don't process this button as a joystick/keyboard press
+    return;
+  }
+
+  // button lock toggle (same encoding as night mode)
+  if (config.buttonLockButton < 64 && buttonOffset == config.buttonLockButton % 32)
+  {
+    if (config.buttonLockButton < 32)
+    {
+      config.buttonLockActive = currentButtonState;
+    }
+    else if (currentButtonState == 1)
+    {
+      config.buttonLockActive = !config.buttonLockActive;
+    }
+    return;
+  }
+
+  // While locked, swallow presses of buttons that aren't in the allowed set.
+  // Releases still go through so nothing gets stuck down when the lock engages.
+  if (currentButtonState == 1 && isButtonLocked(buttonOffset))
+  {
     return;
   }
 
@@ -217,8 +247,10 @@ void Buttons::sendButtonState()
   for (uint8_t i = 0; i < 32; i++)
   {
     ConfigOut.print(config.lastButtonState[i]);
-    if (i < 31) ConfigOut.print(F(","));
+    ConfigOut.print(F(","));
   }
+  // 33rd value: button lock state
+  ConfigOut.print(config.buttonLockActive);
   ConfigOut.print(F("\r\n"));
   ConfigOut.flush();
 }

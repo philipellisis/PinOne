@@ -78,6 +78,15 @@ class Config {
     unsigned char tiltButtonLeft = 11;
     unsigned char tiltButtonRight = 12;
 
+    // Button lock: ignores every button except those set in buttonLockAllowedMask
+    // (bit n = button n+1) so a bump can't exit a game. Encoded like nightModeButton:
+    // 0-31 = active while the button is held, 32-63 = press toggles, 64+ = disabled.
+    unsigned char buttonLockButton = 255;
+    // Default allowed buttons: 1,2,3,4,9,23,24
+    uint32_t buttonLockAllowedMask = 0x00C0010F;
+    // Runtime state, not persisted - always starts unlocked on boot.
+    bool buttonLockActive = false;
+
     unsigned char done = 0;
     bool nightMode = false;
     bool debug = false;

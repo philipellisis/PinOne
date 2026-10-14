@@ -175,6 +175,7 @@ Presence of each PCA9685 board and the accelerometer (and the address it answere
 - **Input profiles**: up to 4 keyboard-mapping profiles, switched by holding a configurable button, with output pulses/light flash to confirm the active profile
 - **BLE HID**: Xbox-style gamepad + keyboard + DOF output report, native NimBLE; device name and button map are configurable
 - **Light Show**: attract mode with random animations, night mode
+- **Button Lock**: a configurable button (hold or toggle, like night mode) disables all buttons except an allowed set (default 1, 2, 3, 4, 9, 23, 24) to prevent accidental bumps; state shows in the config tool's Inputs page
 - **IR Transmitter**: NEC, Samsung, Sony protocols via RMT peripheral
 - **Configuration**: USB HID vendor channel to the PinOne Config Tool
 - **DOF**: output packets arrive over the HID vendor channel; a legacy USB CDC serial DOF fallback (enabled by default, `legacySerialDofEnabled`) supports un-updated DirectOutput installs

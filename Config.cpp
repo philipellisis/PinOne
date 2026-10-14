@@ -114,6 +114,9 @@ void Config::init() {
     prefs.getBytes("profNotifyOut", profileNotifyOutputs, 16);
     prefs.getBytes("profNotifyCnt", profileNotifyPulseCount, 4);
 
+    buttonLockButton = prefs.getUChar("lockBtn", buttonLockButton);
+    buttonLockAllowedMask = prefs.getULong("lockMask", buttonLockAllowedMask);
+
   } else {
     prefs.end();
     //save default config in case it's never been done before
@@ -210,6 +213,9 @@ void Config::saveConfig() {
     prefs.putBytes("profNotifyOut", profileNotifyOutputs, 16);
     prefs.putBytes("profNotifyCnt", profileNotifyPulseCount, 4);
 
+    prefs.putUChar("lockBtn", buttonLockButton);
+    prefs.putULong("lockMask", buttonLockAllowedMask);
+
     prefs.putBool("configured", true);
     prefs.end();
 }
@@ -299,6 +305,14 @@ void Config::updateConfigFromSerial() {
 
     orientationRotation = blockRead() % 72;
     axisRotationOffset = blockRead() % 72;
+
+    buttonLockButton = blockRead();
+    buttonLockAllowedMask = (uint32_t)blockRead() << 24;
+    buttonLockAllowedMask |= (uint32_t)blockRead() << 16;
+    buttonLockAllowedMask |= (uint32_t)blockRead() << 8;
+    buttonLockAllowedMask |= blockRead();
+    // Don't leave the board locked if the lock button was just disabled or changed
+    buttonLockActive = false;
 
     if(blockRead() != 42) {
       done = 1;
@@ -399,6 +413,12 @@ void Config::sendConfig() {
 
     printComma(orientationRotation);
     printComma(axisRotationOffset);
+
+    printComma(buttonLockButton);
+    printComma((unsigned char)(buttonLockAllowedMask >> 24));
+    printComma((unsigned char)(buttonLockAllowedMask >> 16));
+    printComma((unsigned char)(buttonLockAllowedMask >> 8));
+    printComma((unsigned char)(buttonLockAllowedMask & 0xFF));
 
     printComma(expansionBoard1State);
     printComma(expansionBoard2State);

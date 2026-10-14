@@ -22,6 +22,7 @@ class Buttons {
     unsigned long profileSwitchPressStart = 0;
     bool profileSwitchImmediateFired = false;
 
+    bool isButtonLocked(unsigned char button);
     void sendActualButtonPress(unsigned char buttonOffset, bool currentButtonState);
     void handleMediaKey(unsigned char keyCode, bool pressed);
     void processKeyboardAction(unsigned char keyCode, bool pressed);
