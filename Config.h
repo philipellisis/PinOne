@@ -87,6 +87,15 @@ class Config {
     // Runtime state, not persisted - always starts unlocked on boot.
     bool buttonLockActive = false;
 
+    // Bluetooth: slot each raw button (0-31) reports as (0 = unmapped, 1-8 gamepad
+    // buttons, 9-12 d-pad, 13/14 triggers - see BleController) and the advertised
+    // device name (applies after a restart).
+    unsigned char bleButtonMap[32] = {6,14,5,13,4,1,3,2,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,12,9,10,7,0,0,0};
+    char deviceName[32] = "PinOne";
+    // True once the map/name came from the main config (prefs or config tool), not
+    // the legacy BleController storage. Not persisted.
+    bool bleMapStored = false;
+
     unsigned char done = 0;
     bool nightMode = false;
     bool debug = false;

@@ -90,6 +90,14 @@ class BleController::ServerCallbacks : public NimBLEServerCallbacks {
 // =====================================================================
 
 void BleController::initButtonMap() {
+    if (config.bleMapStored) {
+        for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
+            _buttonMap[i] = config.bleButtonMap[i];
+        }
+        return;
+    }
+    // Boards updated from firmware that kept the map in its own NVS namespace:
+    // adopt that map so it's kept, and it will be saved with the main config.
     Preferences prefs;
     if (prefs.begin(NVS_NAMESPACE, true)) {
         size_t len = prefs.getBytesLength(NVS_KEY);
@@ -98,49 +106,32 @@ void BleController::initButtonMap() {
             prefs.getBytes(NVS_KEY, buf, NUM_RAW_BUTTONS);
             for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
                 _buttonMap[i] = buf[i];
+                config.bleButtonMap[i] = buf[i];
+            }
+        } else {
+            for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
+                _buttonMap[i] = config.bleButtonMap[i];
             }
         }
         prefs.end();
     }
 }
 
-void BleController::saveButtonMap() {
-    Preferences prefs;
-    if (prefs.begin(NVS_NAMESPACE, false)) {
-        uint8_t buf[NUM_RAW_BUTTONS];
-        for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
-            buf[i] = (uint8_t)_buttonMap[i];
-        }
-        prefs.putBytes(NVS_KEY, buf, NUM_RAW_BUTTONS);
-        prefs.end();
-    }
-}
-
 void BleController::loadDeviceName(char* nameBuf, size_t bufSize) {
-    Preferences prefs;
-    if (prefs.begin(NVS_NAMESPACE, true)) {
-        String name = prefs.getString(NVS_NAME_KEY, "");
-        prefs.end();
-        if (name.length() > 0 && name.length() < bufSize) {
-            strncpy(nameBuf, name.c_str(), bufSize - 1);
-            nameBuf[bufSize - 1] = '\0';
-            return;
+    if (!config.bleMapStored) {
+        // Adopt a name saved by older firmware in the legacy namespace
+        Preferences prefs;
+        if (prefs.begin(NVS_NAMESPACE, true)) {
+            String name = prefs.getString(NVS_NAME_KEY, "");
+            prefs.end();
+            if (name.length() > 0 && name.length() < sizeof(config.deviceName)) {
+                strncpy(config.deviceName, name.c_str(), sizeof(config.deviceName) - 1);
+                config.deviceName[sizeof(config.deviceName) - 1] = '\0';
+            }
         }
     }
-    strncpy(nameBuf, "PinOne", bufSize - 1);
+    strncpy(nameBuf, config.deviceName[0] ? config.deviceName : "PinOne", bufSize - 1);
     nameBuf[bufSize - 1] = '\0';
-}
-
-void BleController::saveDeviceName(const uint8_t* buf) {
-    char name[32];
-    memcpy(name, buf, 31);
-    name[31] = '\0';
-
-    Preferences prefs;
-    if (prefs.begin(NVS_NAMESPACE, false)) {
-        prefs.putString(NVS_NAME_KEY, name);
-        prefs.end();
-    }
 }
 
 // =====================================================================
@@ -347,18 +338,12 @@ void BleController::applyOutputPackets() {
 // Config Tool Interface
 // =====================================================================
 
-void BleController::updateButtonMap(const uint8_t* mapData, uint8_t len) {
-    if (len > NUM_RAW_BUTTONS) len = NUM_RAW_BUTTONS;
-    for (int i = 0; i < len; i++) {
-        _buttonMap[i] = mapData[i];
+void BleController::applyConfig() {
+    for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
+        _buttonMap[i] = config.bleButtonMap[i];
     }
-    saveButtonMap();
     releaseAllKeys();
     sendGamepad(0, DPAD_CENTERED, 32768, 32768, 0, 0, 32768);
-}
-
-void BleController::updateDeviceName(const uint8_t* nameData, uint8_t len) {
-    saveDeviceName(nameData);
 }
 
 // =====================================================================

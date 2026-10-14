@@ -109,6 +109,8 @@ void Communication::sendAdmin() {
         // shifting every field read for the rest of the transfer.
         while (HidConfig.available()) { HidConfig.read(); }
         config.updateConfigFromSerial();
+        // Button map is part of the main config now; pick up the new mapping
+        bleController.applyConfig();
         plunger.resetPlunger();
         config.accelerometerEprom = config.accelerometer;
         if (config.accelerometerEprom > 0) {
@@ -134,23 +136,6 @@ void Communication::sendAdmin() {
       break;
     case RESET:
       ESP.restart();
-      admin = 0;
-      break;
-    case SET_BLE_MAP:
-      {
-        // Same leftover-padding hazard as GET_CONFIG above.
-        while (HidConfig.available()) { HidConfig.read(); }
-        uint8_t bleData[64];
-        for (uint8_t i = 0; i < 64; i++) {
-          uint32_t t1 = millis();
-          while (!HidConfig.available() && (millis() - t1 < 5000)) { delay(1); }
-          bleData[i] = HidConfig.available() ? HidConfig.read() : 0;
-        }
-        // Apply button map and name to the BLE controller, which the input pass also uses
-        ScopedLock inputPause(inputMutex);
-        bleController.updateButtonMap(bleData, 32);
-        bleController.updateDeviceName(bleData + 32, 32);
-      }
       admin = 0;
       break;
     }

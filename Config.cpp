@@ -117,6 +117,16 @@ void Config::init() {
     buttonLockButton = prefs.getUChar("lockBtn", buttonLockButton);
     buttonLockAllowedMask = prefs.getULong("lockMask", buttonLockAllowedMask);
 
+    if (prefs.isKey("bleMap")) {
+      prefs.getBytes("bleMap", bleButtonMap, 32);
+      bleMapStored = true;
+    }
+    if (prefs.isKey("devName")) {
+      String name = prefs.getString("devName", "PinOne");
+      strncpy(deviceName, name.c_str(), sizeof(deviceName) - 1);
+      deviceName[sizeof(deviceName) - 1] = '\0';
+    }
+
   } else {
     prefs.end();
     //save default config in case it's never been done before
@@ -216,6 +226,9 @@ void Config::saveConfig() {
     prefs.putUChar("lockBtn", buttonLockButton);
     prefs.putULong("lockMask", buttonLockAllowedMask);
 
+    prefs.putBytes("bleMap", bleButtonMap, 32);
+    prefs.putString("devName", deviceName);
+
     prefs.putBool("configured", true);
     prefs.end();
 }
@@ -313,6 +326,14 @@ void Config::updateConfigFromSerial() {
     buttonLockAllowedMask |= blockRead();
     // Don't leave the board locked if the lock button was just disabled or changed
     buttonLockActive = false;
+
+    readConfigArray(bleButtonMap, 32);
+    for (uint8_t i = 0; i < 32; i++) {
+      deviceName[i] = (char)blockRead();
+    }
+    deviceName[31] = '\0';
+    if (deviceName[0] == '\0') strcpy(deviceName, "PinOne");
+    bleMapStored = true;
 
     if(blockRead() != 42) {
       done = 1;
@@ -419,6 +440,11 @@ void Config::sendConfig() {
     printComma((unsigned char)(buttonLockAllowedMask >> 16));
     printComma((unsigned char)(buttonLockAllowedMask >> 8));
     printComma((unsigned char)(buttonLockAllowedMask & 0xFF));
+
+    printConfigArray(bleButtonMap, 32);
+    for (uint8_t i = 0; i < 32; i++) {
+      printComma((unsigned char)deviceName[i]);
+    }
 
     printComma(expansionBoard1State);
     printComma(expansionBoard2State);

@@ -46,8 +46,8 @@ public:
     void update();
 
     // Called from Communication.cpp for config tool
-    void updateButtonMap(const uint8_t* mapData, uint8_t len);
-    void updateDeviceName(const uint8_t* nameData, uint8_t len);
+    // Re-reads the button map from config after the config tool saves it
+    void applyConfig();
 
 private:
     // BLE HID report structures
@@ -85,9 +85,7 @@ private:
     };
 
     void initButtonMap();
-    void saveButtonMap();
     void loadDeviceName(char* nameBuf, size_t bufSize);
-    void saveDeviceName(const uint8_t* buf);
     uint8_t buildDpad(bool up, bool right, bool down, bool left);
     void processGamepadMode();
     void processKeyboardMode();
