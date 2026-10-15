@@ -90,6 +90,14 @@ class BleController::ServerCallbacks : public NimBLEServerCallbacks {
 // =====================================================================
 
 void BleController::initButtonMap() {
+    if (config.bleMapStored) {
+        for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
+            _buttonMap[i] = config.bleButtonMap[i];
+        }
+        return;
+    }
+    // Boards updated from firmware that kept the map in its own NVS namespace:
+    // adopt that map so it's kept, and it will be saved with the main config.
     Preferences prefs;
     if (prefs.begin(NVS_NAMESPACE, true)) {
         size_t len = prefs.getBytesLength(NVS_KEY);
@@ -98,49 +106,32 @@ void BleController::initButtonMap() {
             prefs.getBytes(NVS_KEY, buf, NUM_RAW_BUTTONS);
             for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
                 _buttonMap[i] = buf[i];
+                config.bleButtonMap[i] = buf[i];
+            }
+        } else {
+            for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
+                _buttonMap[i] = config.bleButtonMap[i];
             }
         }
         prefs.end();
     }
 }
 
-void BleController::saveButtonMap() {
-    Preferences prefs;
-    if (prefs.begin(NVS_NAMESPACE, false)) {
-        uint8_t buf[NUM_RAW_BUTTONS];
-        for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
-            buf[i] = (uint8_t)_buttonMap[i];
-        }
-        prefs.putBytes(NVS_KEY, buf, NUM_RAW_BUTTONS);
-        prefs.end();
-    }
-}
-
 void BleController::loadDeviceName(char* nameBuf, size_t bufSize) {
-    Preferences prefs;
-    if (prefs.begin(NVS_NAMESPACE, true)) {
-        String name = prefs.getString(NVS_NAME_KEY, "");
-        prefs.end();
-        if (name.length() > 0 && name.length() < bufSize) {
-            strncpy(nameBuf, name.c_str(), bufSize - 1);
-            nameBuf[bufSize - 1] = '\0';
-            return;
+    if (!config.bleMapStored) {
+        // Adopt a name saved by older firmware in the legacy namespace
+        Preferences prefs;
+        if (prefs.begin(NVS_NAMESPACE, true)) {
+            String name = prefs.getString(NVS_NAME_KEY, "");
+            prefs.end();
+            if (name.length() > 0 && name.length() < sizeof(config.deviceName)) {
+                strncpy(config.deviceName, name.c_str(), sizeof(config.deviceName) - 1);
+                config.deviceName[sizeof(config.deviceName) - 1] = '\0';
+            }
         }
     }
-    strncpy(nameBuf, "PinOne", bufSize - 1);
+    strncpy(nameBuf, config.deviceName[0] ? config.deviceName : "PinOne", bufSize - 1);
     nameBuf[bufSize - 1] = '\0';
-}
-
-void BleController::saveDeviceName(const uint8_t* buf) {
-    char name[32];
-    memcpy(name, buf, 31);
-    name[31] = '\0';
-
-    Preferences prefs;
-    if (prefs.begin(NVS_NAMESPACE, false)) {
-        prefs.putString(NVS_NAME_KEY, name);
-        prefs.end();
-    }
 }
 
 // =====================================================================
@@ -163,7 +154,7 @@ void BleController::begin() {
 
     _hidDevice = new NimBLEHIDDevice(_server);
     _hidDevice->setManufacturer("PinOne");
-    _hidDevice->setPnp(0x02, 0x0E8F, 0x9208, 0x0100);
+    _hidDevice->setPnp(0x02, 0x39F5, 0x9208, 0x0100);  // Cleveland Software Design's assigned USB-IF vendor ID
     _hidDevice->setHidInfo(0x00, 0x01);
     _hidDevice->setBatteryLevel(100);
     _hidDevice->setReportMap((uint8_t*)hidReportMap, sizeof(hidReportMap));
@@ -212,8 +203,30 @@ void BleController::update() {
     if (kbdMode == 1 || kbdMode == 2) {
         processKeyboardMode();
     }
-    if (kbdMode == 0 || kbdMode == 2) {
-        processGamepadMode();
+    // Always send the gamepad report: plunger/accelerometer axes aren't
+    // affected by keyboard mode, and mode 1 falls back to gamepad for any
+    // button with no keyboard mapping (processGamepadMode() below skips
+    // only the buttons processKeyboardMode() is already handling), matching
+    // the wired-USB behavior in Buttons::sendActualButtonPress().
+    processGamepadMode();
+
+    // BLE notifications are unacknowledged at the application layer: NimBLE's
+    // notify() can silently drop a report (e.g. BLE_HS_ENOMEM when two
+    // notifications are issued back-to-back before the link layer flushes the
+    // first, which is easy to hit on a fast button tap), and the return value
+    // was never checked here. A dropped packet permanently desyncs the host
+    // from our state since reports are only sent on change, showing up as a
+    // key stuck down or a press that doesn't register until a later button
+    // change happens to resend it. Periodically re-notify the last known
+    // report (no-arg notify() re-sends the characteristic's stored value) so
+    // a dropped packet self-corrects quickly instead of waiting indefinitely.
+    uint32_t now = millis();
+    if (now - _lastUpdate >= BLE_HEARTBEAT_INTERVAL_MS) {
+        _lastUpdate = now;
+        if (kbdMode == 1 || kbdMode == 2) {
+            _kbReport->notify();
+        }
+        _gpReport->notify();
     }
 }
 
@@ -224,7 +237,7 @@ void BleController::processKeyboardMode() {
 
     for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
         if (!config.processedButtonState[i]) continue;
-        uint8_t kc = config.buttonKeyboard[i];
+        uint8_t kc = config.getButtonKeyboard(i);
         if (kc == 0x00 || kc == 0xFF) continue;
         if (kc >= 0xE0 && kc <= 0xE7) {
             curMod |= (1 << (kc - 0xE0));
@@ -244,9 +257,22 @@ void BleController::processGamepadMode() {
     uint16_t curButtons = 0;
     bool dpadUp = false, dpadDown = false, dpadLeft = false, dpadRight = false;
     uint16_t curLT = 0, curRT = 0;
+    uint8_t kbdMode = config.disableButtonPressWhenKeyboardEnabled;
 
     for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
         if (!config.processedButtonState[i]) continue;
+
+        // Mode 1 (keyboard only): a button with a keyboard mapping is
+        // handled by processKeyboardMode() instead — skip it here so it
+        // isn't reported twice. A button with no mapping falls back to
+        // gamepad, matching Buttons::sendActualButtonPress() on the wired
+        // path. Mode 0/2 always include every button.
+        if (kbdMode == 1) {
+            uint8_t kc = config.getButtonKeyboard(i);
+            bool hasKeyMapping = (kc != 0x00 && kc != 0xFF);
+            if (hasKeyMapping) continue;
+        }
+
         int slot = _buttonMap[i];
         switch (slot) {
             case 1: case 2: case 3: case 4:
@@ -270,14 +296,8 @@ void BleController::processGamepadMode() {
     int16_t accelX = accel.getXValue();
     int16_t accelY = accel.getYValue();
 
-    // Scale plunger from -128..127 to -32767..32767
-    int32_t ps = ((int32_t)plungerVal * 32767) / 127;
-    if (ps >  32767) ps =  32767;
-    if (ps < -32767) ps = -32767;
-    int16_t scaledPlunger = (int16_t)ps;
-
     if (curButtons != _prevGpButtons || dpad != _prevDpad ||
-        accelX != _prevLX || accelY != _prevLY || scaledPlunger != _prevPlunger ||
+        accelX != _prevLX || accelY != _prevLY || plungerVal != _prevPlunger ||
         curLT != _prevLT || curRT != _prevRT) {
 
         sendGamepad(
@@ -286,13 +306,13 @@ void BleController::processGamepadMode() {
             (uint16_t)((int32_t)accelY + 32768),
             (uint16_t)(curLT * 64),
             (uint16_t)(curRT * 64),
-            (uint16_t)((int32_t)scaledPlunger + 32768)
+            (uint16_t)((int32_t)plungerVal + 32768)
         );
         _prevGpButtons = curButtons;
         _prevDpad      = dpad;
         _prevLX        = accelX;
         _prevLY        = accelY;
-        _prevPlunger   = scaledPlunger;
+        _prevPlunger   = plungerVal;
         _prevLT        = curLT;
         _prevRT        = curRT;
     }
@@ -303,12 +323,12 @@ void BleController::applyOutputPackets() {
     while (getOutputPacket(buf)) {
         if (buf[0] == 0xFF) {
             // Single output: [0xFF, outputId, value, ...]
-            outputs.updateOutput(buf[1], buf[2]);
+            outputs.requestOutput(buf[1], buf[2]);
         } else if (buf[0] <= 8) {
             // Bank update: [bankIndex, v0, v1, v2, v3, v4, v5, v6]
             uint8_t baseIndex = buf[0] * 7;
             for (int i = 0; i < 7; i++) {
-                outputs.updateOutput(baseIndex + i, buf[1 + i]);
+                outputs.requestOutput(baseIndex + i, buf[1 + i]);
             }
         }
     }
@@ -318,18 +338,12 @@ void BleController::applyOutputPackets() {
 // Config Tool Interface
 // =====================================================================
 
-void BleController::updateButtonMap(const uint8_t* mapData, uint8_t len) {
-    if (len > NUM_RAW_BUTTONS) len = NUM_RAW_BUTTONS;
-    for (int i = 0; i < len; i++) {
-        _buttonMap[i] = mapData[i];
+void BleController::applyConfig() {
+    for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
+        _buttonMap[i] = config.bleButtonMap[i];
     }
-    saveButtonMap();
     releaseAllKeys();
     sendGamepad(0, DPAD_CENTERED, 32768, 32768, 0, 0, 32768);
-}
-
-void BleController::updateDeviceName(const uint8_t* nameData, uint8_t len) {
-    saveDeviceName(nameData);
 }
 
 // =====================================================================
@@ -341,14 +355,23 @@ void BleController::sendKeyboard(uint8_t modifiers, const uint8_t keys[6]) {
     _kbState.modifiers = modifiers;
     memcpy(_kbState.keys, keys, 6);
     _kbReport->setValue((uint8_t*)&_kbState, sizeof(_kbState));
-    _kbReport->notify();
+    // Pass the value directly rather than calling the no-arg notify(): the
+    // no-arg form just marks the characteristic "modified" and notifies
+    // whatever its value happens to be when NimBLE's host task gets around
+    // to it, so a second setValue() issued before that task runs (e.g. a
+    // fast press-then-release, typical for a tapped flipper/action button)
+    // silently overwrites the first state and only the net change is ever
+    // sent. Passing the value builds and transmits a discrete packet for
+    // this exact state immediately, so back-to-back edges can't clobber
+    // each other.
+    _kbReport->notify((uint8_t*)&_kbState, sizeof(_kbState));
 }
 
 void BleController::releaseAllKeys() {
     if (!_kbReport) return;
     _kbState = KeyReport{};
     _kbReport->setValue((uint8_t*)&_kbState, sizeof(_kbState));
-    if (_connected) _kbReport->notify();
+    if (_connected) _kbReport->notify((uint8_t*)&_kbState, sizeof(_kbState));
 }
 
 void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
@@ -364,7 +387,7 @@ void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
     _gpState.rt      = rt;
     _gpState.z       = z;
     _gpReport->setValue((uint8_t*)&_gpState, sizeof(_gpState));
-    _gpReport->notify();
+    _gpReport->notify((uint8_t*)&_gpState, sizeof(_gpState));
 }
 
 bool BleController::getOutputPacket(uint8_t* buf) {

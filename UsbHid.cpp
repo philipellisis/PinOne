@@ -127,8 +127,10 @@ static const uint8_t _combinedReportDescriptor[] = {
     0x05, 0x01, 0xa1, 0x00, 0x09, 0x30, 0x09, 0x31,
     0x09, 0x33, 0x09, 0x34, 0x16, 0x00, 0x80, 0x26,
     0xFF, 0x7F, 0x75, 0x10, 0x95, 0x04, 0x81, 0x02,
-    0x09, 0x32, 0x09, 0x35, 0x15, 0x80, 0x25, 0x7F,
-    0x75, 0x08, 0x95, 0x02, 0x81, 0x02, 0xc0,
+    0x09, 0x32, 0x16, 0x00, 0x80, 0x26, 0xFF, 0x7F,
+    0x75, 0x10, 0x95, 0x01, 0x81, 0x02,
+    0x09, 0x35, 0x15, 0x80, 0x25, 0x7F,
+    0x75, 0x08, 0x95, 0x01, 0x81, 0x02, 0xc0,
     0x05, 0x01, 0x09, 0x39, 0x09, 0x39, 0x15, 0x01,
     0x25, 0x08, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14,
     0x75, 0x04, 0x95, 0x02, 0x81, 0x42,
@@ -153,6 +155,36 @@ static const uint8_t _combinedReportDescriptor[] = {
 
 static USBHID HID;
 USBCDC ComSerial;
+USBHIDVendor HidConfig(63, true);
+HidPrintBuffer ConfigOut;
+
+// =====================================================================
+// HidPrintBuffer Implementation
+// =====================================================================
+
+size_t HidPrintBuffer::write(uint8_t c) {
+    if (_len < sizeof(_buf)) {
+        _buf[_len++] = c;
+    }
+    return 1;
+}
+
+size_t HidPrintBuffer::write(const uint8_t* buffer, size_t size) {
+    size_t n = size;
+    if (_len + n > sizeof(_buf)) {
+        n = sizeof(_buf) - _len;
+    }
+    memcpy(_buf + _len, buffer, n);
+    _len += n;
+    return size;
+}
+
+void HidPrintBuffer::flush() {
+    if (_dev && _len) {
+        _dev->write(_buf, _len);
+    }
+    _len = 0;
+}
 
 // =====================================================================
 // MinimalGamepad Implementation (TinyUSB)
@@ -191,7 +223,7 @@ void MinimalGamepad::ryAxis(int16_t value) {
     write();
 }
 
-void MinimalGamepad::zAxis(int8_t value) {
+void MinimalGamepad::zAxis(int16_t value) {
     _report.zAxis = value;
     write();
 }
@@ -304,16 +336,16 @@ SingleConsumerClass SingleConsumer;
 
 void usbHidSetup() {
     HID.addDevice(&Gamepad1, sizeof(_combinedReportDescriptor));
-    USB.VID(0x0E8F);
+    USB.VID(0x39F5);  // Cleveland Software Design's assigned USB-IF vendor ID
     // NOTE: Windows caches DirectInput calibration/layout per VID+PID under
     // HKCU\...\MediaProperties\PrivateProperties\DirectInput\VID_xxxx&PID_xxxx.
     // While the HID report descriptor above is still changing, bump this PID so
     // Windows builds a fresh cache instead of reusing a stale one (which forces
     // a manual registry-key delete). Freeze it once the descriptor is final.
     USB.PID(0x9208);
-    USB.productName("PinOne V2");
+    USB.productName("PinOne Ultra");
     USB.manufacturerName("PinOne");
-    USB.serialNumber("PinOne-V2-0001");  // stable ID so Windows stops re-enumerating per port
+    USB.serialNumber("PinOne-Ultra-0001");  // stable ID so Windows stops re-enumerating per port
     ComSerial.begin(9600);  // register CDC before USB.begin()
 }
 
@@ -322,4 +354,7 @@ void usbHidStart() {
     Gamepad1.begin();
     BootKeyboard.begin();
     SingleConsumer.begin();
+    HidConfig.setRxBufferSize(1024);  // must precede begin(); begin() only applies its 256-byte default if unset
+    HidConfig.begin();
+    ConfigOut.begin(&HidConfig);
 }

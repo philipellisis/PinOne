@@ -5,6 +5,11 @@
 
 static Preferences prefs;
 
+// Convert a plunger value from the old 10-bit ADC counts (0-1023) to millivolts (0-3300)
+static int countsToMv(int counts) {
+  return (counts * 3300 + 511) / 1023;
+}
+
 Config::Config() {
 }
 
@@ -27,6 +32,10 @@ void Config::init() {
     prefs.getBytes("solOutMap", solenoidOutputMap, 4);
 
     orientation = prefs.getUChar("orient", orientation);
+    // Boards saved before rotation calibration only have the 90 degree
+    // orientation in the low two bits; 18 steps of 5 degrees = 90 degrees.
+    orientationRotation = prefs.getUChar("orientRot", (orientation & 3) * 18) % 72;
+    axisRotationOffset = prefs.getUChar("axisRotOff", 0) % 72;
     accelerometer = prefs.getUChar("accel", accelerometer);
     accelerometerEprom = accelerometer;
 
@@ -80,9 +89,43 @@ void Config::init() {
     lowLatencyMode = prefs.getBool("lowLatency", lowLatencyMode);
     plungerRestingDeadZone = prefs.getUChar("plgRestDZ", plungerRestingDeadZone);
 
+    // Boards saved before the plunger moved to millivolts stored calibration in
+    // 10-bit ADC counts (0-1023). Convert those once here; the next save writes
+    // the "plgUnits" marker so the conversion never runs twice.
+    if (!prefs.isKey("plgUnits") && prefs.isKey("plgMax")) {
+      plungerMax = countsToMv(plungerMax);
+      plungerMin = countsToMv(plungerMin);
+      plungerMid = countsToMv(plungerMid);
+      plungerRestingDeadZone = (unsigned char)min(countsToMv(plungerRestingDeadZone), 255);
+    }
+
     accelerometerVelocityEnabled = prefs.getBool("accelVelEn", accelerometerVelocityEnabled);
     accelerometerVelocityDecayTime = prefs.getInt("accelVelDecay", accelerometerVelocityDecayTime);
     accelerometerVelocityScale = prefs.getInt("accelVelScale", accelerometerVelocityScale);
+
+    legacySerialDofEnabled = prefs.getBool("legacyDofSer", legacySerialDofEnabled);
+
+    prefs.getBytes("kbdProf2", buttonKeyboardProfile2, 32);
+    prefs.getBytes("kbdProf3", buttonKeyboardProfile3, 32);
+    prefs.getBytes("kbdProf4", buttonKeyboardProfile4, 32);
+    profileCount = prefs.getUChar("profCount", profileCount);
+    profileSwitchButton = prefs.getUChar("profSwBtn", profileSwitchButton);
+    profileSwitchHoldTime = prefs.getInt("profHoldMs", profileSwitchHoldTime);
+    prefs.getBytes("profNotifyOut", profileNotifyOutputs, 16);
+    prefs.getBytes("profNotifyCnt", profileNotifyPulseCount, 4);
+
+    buttonLockButton = prefs.getUChar("lockBtn", buttonLockButton);
+    buttonLockAllowedMask = prefs.getULong("lockMask", buttonLockAllowedMask);
+
+    if (prefs.isKey("bleMap")) {
+      prefs.getBytes("bleMap", bleButtonMap, 32);
+      bleMapStored = true;
+    }
+    if (prefs.isKey("devName")) {
+      String name = prefs.getString("devName", "PinOne");
+      strncpy(deviceName, name.c_str(), sizeof(deviceName) - 1);
+      deviceName[sizeof(deviceName) - 1] = '\0';
+    }
 
   } else {
     prefs.end();
@@ -105,11 +148,14 @@ void Config::saveConfig() {
     prefs.putInt("plgMax", plungerMax);
     prefs.putInt("plgMin", plungerMin);
     prefs.putInt("plgMid", plungerMid);
+    prefs.putUChar("plgUnits", 1);  // 1 = plunger calibration in millivolts
 
     prefs.putBytes("solBtnMap", solenoidButtonMap, 4);
     prefs.putBytes("solOutMap", solenoidOutputMap, 4);
 
     prefs.putUChar("orient", orientation);
+    prefs.putUChar("orientRot", orientationRotation);
+    prefs.putUChar("axisRotOff", axisRotationOffset);
     prefs.putUChar("accel", accelerometer);
 
     prefs.putUChar("accelSens", accelerometerSensitivity);
@@ -165,6 +211,23 @@ void Config::saveConfig() {
     prefs.putBool("accelVelEn", accelerometerVelocityEnabled);
     prefs.putInt("accelVelDecay", accelerometerVelocityDecayTime);
     prefs.putInt("accelVelScale", accelerometerVelocityScale);
+
+    prefs.putBool("legacyDofSer", legacySerialDofEnabled);
+
+    prefs.putBytes("kbdProf2", buttonKeyboardProfile2, 32);
+    prefs.putBytes("kbdProf3", buttonKeyboardProfile3, 32);
+    prefs.putBytes("kbdProf4", buttonKeyboardProfile4, 32);
+    prefs.putUChar("profCount", profileCount);
+    prefs.putUChar("profSwBtn", profileSwitchButton);
+    prefs.putInt("profHoldMs", profileSwitchHoldTime);
+    prefs.putBytes("profNotifyOut", profileNotifyOutputs, 16);
+    prefs.putBytes("profNotifyCnt", profileNotifyPulseCount, 4);
+
+    prefs.putUChar("lockBtn", buttonLockButton);
+    prefs.putULong("lockMask", buttonLockAllowedMask);
+
+    prefs.putBytes("bleMap", bleButtonMap, 32);
+    prefs.putString("devName", deviceName);
 
     prefs.putBool("configured", true);
     prefs.end();
@@ -242,6 +305,36 @@ void Config::updateConfigFromSerial() {
     accelerometerVelocityDecayTime = readIntFromByte();
     accelerometerVelocityScale = readIntFromByte();
 
+    legacySerialDofEnabled = blockRead();
+
+    readConfigArray(buttonKeyboardProfile2, 32);
+    readConfigArray(buttonKeyboardProfile3, 32);
+    readConfigArray(buttonKeyboardProfile4, 32);
+    profileCount = blockRead();
+    profileSwitchButton = blockRead();
+    profileSwitchHoldTime = readIntFromByte();
+    readConfigArray(profileNotifyOutputs, 16);
+    readConfigArray(profileNotifyPulseCount, 4);
+
+    orientationRotation = blockRead() % 72;
+    axisRotationOffset = blockRead() % 72;
+
+    buttonLockButton = blockRead();
+    buttonLockAllowedMask = (uint32_t)blockRead() << 24;
+    buttonLockAllowedMask |= (uint32_t)blockRead() << 16;
+    buttonLockAllowedMask |= (uint32_t)blockRead() << 8;
+    buttonLockAllowedMask |= blockRead();
+    // Don't leave the board locked if the lock button was just disabled or changed
+    buttonLockActive = false;
+
+    readConfigArray(bleButtonMap, 32);
+    for (uint8_t i = 0; i < 32; i++) {
+      deviceName[i] = (char)blockRead();
+    }
+    deviceName[31] = '\0';
+    if (deviceName[0] == '\0') strcpy(deviceName, "PinOne");
+    bleMapStored = true;
+
     if(blockRead() != 42) {
       done = 1;
     }
@@ -256,11 +349,12 @@ void Config::updateConfigFromSerial() {
 
 
 void Config::printError() {
-  ComSerial.print(F("R,E\r\n"));
+  ConfigOut.print(F("R,E\r\n"));
+  ConfigOut.flush();
 }
 
 void Config::sendConfig() {
-    ComSerial.print(F("C,"));
+    ConfigOut.print(F("C,"));
 
     printConfigArray(toySpecialOption, 63);
     printConfigArray(turnOffState, 63);
@@ -327,21 +421,53 @@ void Config::sendConfig() {
     printIntComma(accelerometerVelocityDecayTime);
     printIntComma(accelerometerVelocityScale);
 
-    ComSerial.print(F("E\r\n"));
+    printComma(legacySerialDofEnabled);
+
+    printConfigArray(buttonKeyboardProfile2, 32);
+    printConfigArray(buttonKeyboardProfile3, 32);
+    printConfigArray(buttonKeyboardProfile4, 32);
+    printComma(profileCount);
+    printComma(profileSwitchButton);
+    printIntComma(profileSwitchHoldTime);
+    printConfigArray(profileNotifyOutputs, 16);
+    printConfigArray(profileNotifyPulseCount, 4);
+
+    printComma(orientationRotation);
+    printComma(axisRotationOffset);
+
+    printComma(buttonLockButton);
+    printComma((unsigned char)(buttonLockAllowedMask >> 24));
+    printComma((unsigned char)(buttonLockAllowedMask >> 16));
+    printComma((unsigned char)(buttonLockAllowedMask >> 8));
+    printComma((unsigned char)(buttonLockAllowedMask & 0xFF));
+
+    printConfigArray(bleButtonMap, 32);
+    for (uint8_t i = 0; i < 32; i++) {
+      printComma((unsigned char)deviceName[i]);
+    }
+
+    printComma(expansionBoard1State);
+    printComma(expansionBoard2State);
+    printComma(expansionBoard3State);
+    printComma(mpuState);
+
+    ConfigOut.print(F("E\r\n"));
+    ConfigOut.flush();
 }
 
 void Config::printComma(unsigned char value) {
-  ComSerial.print(value);
-  ComSerial.print(F(","));
+  ConfigOut.print(value);
+  ConfigOut.print(F(","));
 }
 
 void Config::printIntComma(int value) {
-  ComSerial.print(value);
-  ComSerial.print(F(","));
+  ConfigOut.print(value);
+  ConfigOut.print(F(","));
 }
 
 void Config::printSuccess() {
-  ComSerial.print(F("R,S\r\n"));
+  ConfigOut.print(F("R,S\r\n"));
+  ConfigOut.flush();
 }
 
 unsigned char Config::blockRead() {
@@ -351,8 +477,8 @@ unsigned char Config::blockRead() {
     uint32_t t1 = millis();
     uint32_t t2 = millis();
     while ((t2 - t1) < 5000) {
-      if (ComSerial.available() > 0) {
-        return ComSerial.read();
+      if (HidConfig.available() > 0) {
+        return HidConfig.read();
       }
       t2 = millis();
       delay(50);

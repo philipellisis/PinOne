@@ -4,10 +4,9 @@
 #include "Enums.h"
 #include "UsbHid.h"
 #include "Globals.h"
-#include "IRTransmit.h"
+#include "OutputTask.h"
 
 ButtonReader buttonReader;
-IRTransmit irTransmit;
 
 // Pin 18, A0 = UP
 // Pin 19, A1 = RIGHT
@@ -29,18 +28,11 @@ void Buttons::init()
 
 bool Buttons::checkChanged()
 {
-  // Check button 9 hold for mode toggle
-  if (button9PressStart && millis() - button9PressStart >= MODE_TOGGLE_HOLD_MS) {
-    // Mode 2 (keyboard + gamepad) is sticky and can't be exited by holding button 9
-    if (config.disableButtonPressWhenKeyboardEnabled != 2) {
-      config.disableButtonPressWhenKeyboardEnabled = !config.disableButtonPressWhenKeyboardEnabled;
-      // Release button 9 from keyboard and gamepad
-      unsigned char keyCode = config.buttonKeyboard[config.buttonRemap[8] - 1];
-      if (keyCode > 0) processKeyboardAction(keyCode, false);
-      Gamepad1.release(config.buttonRemap[8]);
-      lightShow.flashLights();
-    }
-    button9PressStart = millis();
+  // Check profile switch button hold
+  if (config.profileCount > 0 && profileSwitchPressStart && config.profileSwitchHoldTime > 0 &&
+      millis() - profileSwitchPressStart >= (unsigned long)config.profileSwitchHoldTime) {
+    switchProfile();
+    profileSwitchPressStart = millis();
   }
   if (config.buttonPressed)
   {
@@ -57,7 +49,7 @@ bool Buttons::checkChanged()
 
 void Buttons::readInputs()
 {
-  uint8_t buttonPushed = 2; // this is set to notify light show that a button press has happened
+  uint8_t buttonPushed = 2; // 1 = a press edge happened, 0 = a release edge, 2 = none
   // read shift register values
   if (config.buttonPressed || buttons.numberButtonsPressed > 0)
   {
@@ -81,26 +73,21 @@ void Buttons::readInputs()
 
     }
   }
+  // The light show state machine belongs to the output task, so hand it the edge
   if (buttonPushed == 1)
   {
-    if (config.lightShowState == WAITING_INPUT || config.lightShowState == IN_RANDOM_MODE_WAITING_INPUT)
-    {
-      config.lightShowState = INPUT_RECEIVED_SET_LIGHTS_HIGH;
-    }
+    postOutputCommand(CMD_BUTTON_PRESSED);
   }
   else if (buttonPushed == 0)
   {
-    if (config.lightShowState == INPUT_RECEIVED_BUTTON_STILL_PRESSED)
-    {
-      config.lightShowState = INPUT_RECEIVED_SET_LIGHTS_LOW;
-    }
+    postOutputCommand(CMD_BUTTON_RELEASED);
   }
 }
 
 bool Buttons::sendButtonPush(unsigned char i, bool currentButtonState)
 {
-  // Check for button 9 mode toggle (5 second hold)
-  checkModeToggle(i, currentButtonState);
+  // Check for profile switch button press/hold
+  checkProfileSwitchButton(i, currentButtonState);
 
   config.updateUSB = true;
 
@@ -157,19 +144,29 @@ bool Buttons::sendButtonPush(unsigned char i, bool currentButtonState)
   {
     if (config.solenoidButtonMap[j] > 0 && config.solenoidButtonMap[j] - 1 == i)
     {
-      if (config.solenoidOutputMap[j] > 0)
+      if (config.solenoidOutputMap[j] > 0 && !(currentButtonState && isButtonLocked(i)))
       {
-        outputs.updateOutput(config.solenoidOutputMap[j] - 1, currentButtonState ? 255 : 0);
+        outputs.requestOutput(config.solenoidOutputMap[j] - 1, currentButtonState ? 255 : 0);
       }
     }
   }
 
-  // Trigger IR command on button press (rising edge only)
-  if (currentButtonState && config.irOutputPin < 15 && config.irButton == i)
+  // Trigger IR command on button press (rising edge only). IR transmit blocks
+  // until the RMT transfer finishes, so it runs on the output task.
+  if (currentButtonState && config.irOutputPin < 15 && config.irButton == i && !isButtonLocked(i))
   {
-    irTransmit.sendCommand(outputs.outputList[config.irOutputPin]);
+    postOutputCommand(CMD_IR_SEND, config.irOutputPin);
   }
   return currentButtonState;
+}
+
+// True when the button lock is engaged and this button isn't in the allowed set.
+// The lock button itself is never blocked, so it can always unlock.
+bool Buttons::isButtonLocked(unsigned char button)
+{
+  if (!config.buttonLockActive || button > 31) return false;
+  if (config.buttonLockButton < 64 && button == config.buttonLockButton % 32) return false;
+  return ((config.buttonLockAllowedMask >> button) & 1) == 0;
 }
 
 void Buttons::sendActualButtonPress(unsigned char buttonOffset, bool currentButtonState)
@@ -194,7 +191,28 @@ void Buttons::sendActualButtonPress(unsigned char buttonOffset, bool currentButt
     return;
   }
 
-  unsigned char keyCode = config.buttonKeyboard[config.buttonRemap[buttonOffset] - 1];
+  // button lock toggle (same encoding as night mode)
+  if (config.buttonLockButton < 64 && buttonOffset == config.buttonLockButton % 32)
+  {
+    if (config.buttonLockButton < 32)
+    {
+      config.buttonLockActive = currentButtonState;
+    }
+    else if (currentButtonState == 1)
+    {
+      config.buttonLockActive = !config.buttonLockActive;
+    }
+    return;
+  }
+
+  // While locked, swallow presses of buttons that aren't in the allowed set.
+  // Releases still go through so nothing gets stuck down when the lock engages.
+  if (currentButtonState == 1 && isButtonLocked(buttonOffset))
+  {
+    return;
+  }
+
+  unsigned char keyCode = config.getButtonKeyboard(config.buttonRemap[buttonOffset] - 1);
   bool hasKeyMapping = keyCode > 0;
   unsigned char keyboardMode = config.disableButtonPressWhenKeyboardEnabled;
 
@@ -225,13 +243,16 @@ void Buttons::sendActualButtonPress(unsigned char buttonOffset, bool currentButt
 
 void Buttons::sendButtonState()
 {
-  ComSerial.print(F("B,"));
+  ConfigOut.print(F("B,"));
   for (uint8_t i = 0; i < 32; i++)
   {
-    ComSerial.print(config.lastButtonState[i]);
-    if (i < 31) ComSerial.print(F(","));
+    ConfigOut.print(config.lastButtonState[i]);
+    ConfigOut.print(F(","));
   }
-  ComSerial.print(F("\r\n"));
+  // 33rd value: button lock state
+  ConfigOut.print(config.buttonLockActive);
+  ConfigOut.print(F("\r\n"));
+  ConfigOut.flush();
 }
 void Buttons::processKeyboardAction(unsigned char keyCode, bool pressed) {
   if (keyCode > 251) {
@@ -258,7 +279,33 @@ void Buttons::handleMediaKey(unsigned char keyCode, bool pressed) {
   }
 }
 
-void Buttons::checkModeToggle(unsigned char buttonIndex, bool currentButtonState) {
-  if (buttonIndex != 8) return;
-  button9PressStart = currentButtonState ? millis() : 0;
+void Buttons::checkProfileSwitchButton(unsigned char buttonIndex, bool currentButtonState) {
+  if (buttonIndex != config.profileSwitchButton) return;
+  if (currentButtonState) {
+    // Immediate mode (hold time 0): switch once per press, on the rising edge
+    if (config.profileCount > 0 && config.profileSwitchHoldTime == 0 && !profileSwitchImmediateFired) {
+      switchProfile();
+      profileSwitchImmediateFired = true;
+    }
+    profileSwitchPressStart = millis();
+  } else {
+    profileSwitchPressStart = 0;
+    profileSwitchImmediateFired = false;
+  }
+}
+
+void Buttons::switchProfile() {
+  // Release the switch button's current mapping before changing profiles so a key
+  // held across the switch doesn't get stuck down under the old profile's mapping.
+  unsigned char oldKeyCode = config.getButtonKeyboard(config.buttonRemap[config.profileSwitchButton] - 1);
+  if (oldKeyCode > 0) processKeyboardAction(oldKeyCode, false);
+  Gamepad1.release(config.buttonRemap[config.profileSwitchButton]);
+
+  config.activeProfile = (config.activeProfile + 1) % (config.profileCount + 1);
+  notifyProfileChange(config.activeProfile);
+}
+
+void Buttons::notifyProfileChange(unsigned char profileIndex) {
+  // The pulse/flash blocks for hundreds of ms, so it runs on the output task
+  postOutputCommand(CMD_PROFILE_NOTIFY, profileIndex);
 }

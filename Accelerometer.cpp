@@ -26,6 +26,8 @@ void Accelerometer::init()
     ok = mpu.init();
   }
 
+  config.mpuState = mpu.getAddress();
+
   if (!ok)
   {
     config.accelerometer = 0;
@@ -50,7 +52,7 @@ void Accelerometer::centerAccelerometer()
   {
     mpu.read();
     offsetxCounter += getRawAccelValue();
-    offsetycounter += mpu.getY();
+    offsetycounter += getRawAccelValueY();
 
     count++;
   }
@@ -61,17 +63,70 @@ void Accelerometer::centerAccelerometer()
   // time doesn't reflect real cabinet motion; reset the velocity integrator
   // rather than let it treat this gap as a huge, bogus time step.
   resetVelocity();
+  xDriftRemainder = 0.0f;
+  yDriftRemainder = 0.0f;
+}
+
+// Continuously drift the zero offsets toward the sensor's current reading, so
+// any steady offset (a tilt change, a board resting on its side, thermal drift)
+// slowly relaxes back to the 0,0 position. This acts as a very slow high-pass
+// filter: a nudge is over in a fraction of a second, so only a few percent of
+// it is absorbed, while anything that lasts for several seconds is centered out.
+//
+// Each step closes STEP / TIME_CONSTANT of the remaining distance, so the
+// position decays exponentially with a time constant of AUTO_CENTER_TIME_CONSTANT_US.
+// The fractional part is carried between steps so small errors still converge.
+void Accelerometer::autoCenter(int16_t rawX, int16_t rawY) {
+  const unsigned long AUTO_CENTER_STEP_US = 20000UL;               // update every 20 ms
+  const float AUTO_CENTER_TIME_CONSTANT_US = 3000000.0f;           // ~3 s to close 63% of the gap
+  const float stepFraction = AUTO_CENTER_STEP_US / AUTO_CENTER_TIME_CONSTANT_US;
+
+  unsigned long now = micros();
+  if (now - lastAutoCenterMicros < AUTO_CENTER_STEP_US) return;
+  lastAutoCenterMicros = now;
+
+  xDriftRemainder += rawX * stepFraction;
+  yDriftRemainder += rawY * stepFraction;
+
+  int16_t xStep = static_cast<int16_t>(xDriftRemainder);  // truncates toward zero
+  int16_t yStep = static_cast<int16_t>(yDriftRemainder);
+  xDriftRemainder -= xStep;
+  yDriftRemainder -= yStep;
+
+  xValueOffset += xStep;
+  yValueOffset += yStep;
 }
 
 void Accelerometer::resetAccelerometer()
 {
-  if (config.orientation > 7) {
-    orientation = config.orientation - 8;
-  } else {
-    orientation = config.orientation;
-  }
+  // Everything derived from config is computed here, once, rather than per
+  // sample. This runs at boot and again after every config save (see the
+  // GET_CONFIG handler in Communication.cpp).
+  pinsFacingUp = (config.orientation & 4) != 0;
+  mountedOnSide = (config.orientation & 8) != 0;
+
+  // Rotation is stored in 5 degree steps. Precompute the trig so the read path
+  // doesn't need to evaluate it every sample.
+  // DEG_TO_RAD comes from Arduino.h
+  float angleX = (config.orientationRotation % 72) * 5.0f * DEG_TO_RAD;
+  float angleY = ((config.orientationRotation + config.axisRotationOffset) % 72) * 5.0f * DEG_TO_RAD;
+  cosX = cosf(angleX);
+  sinX = sinf(angleX);
+  cosY = cosf(angleY);
+  sinY = sinf(angleY);
+
   localMax = config.accelerometerMax;
   localMaxY = config.accelerometerMaxY;
+  xAxisScale = localMax != 0 ? 32767.0f / localMax : 0.0f;
+  yAxisScale = localMaxY != 0 ? 32767.0f / localMaxY : 0.0f;
+
+  // Velocity integration constants: counts -> mm/s^2, and the decay rate as
+  // halvings per second (0 disables decay).
+  velocityCountsToMmPerSec2 = (getGRange() / 32768.0f) * 9806.65f;
+  velocityHalvingsPerSec = config.accelerometerVelocityDecayTime > 0
+    ? 1000.0f / static_cast<float>(config.accelerometerVelocityDecayTime)
+    : 0.0f;
+
   mpu.setAccelerometerRange(config.accelerometerSensitivity);
   centerAccelerometer();
 }
@@ -79,25 +134,20 @@ void Accelerometer::resetAccelerometer()
 void Accelerometer::accelerometerRead()
 {
   if (config.plungerMoving == true && config.disableAccelOnPlungerMove == 1) {
+    // The plunger's own motion shakes the cabinet, so hold every axis at zero
+    // for as long as it is moving rather than leaving the last reading stuck.
+    zeroOutputs();
     return;
-  }
-  if (config.lightShowState == IN_RANDOM_MODE_WAITING_INPUT)
-  {
-    if (recentered == false)
-    {
-      centerAccelerometer();
-      recentered = true;
-    }
-  }
-  else
-  {
-    recentered = false;
   }
   /* Get new sensor events with the readings */
   mpu.read();
 
-  xValue = floor((getRawAccelValue() - xValueOffset));
-  yValue = floor((mpu.getY() - yValueOffset));
+  int16_t rawX = getRawAccelValue() - xValueOffset;
+  int16_t rawY = getRawAccelValueY() - yValueOffset;
+  autoCenter(rawX, rawY);
+
+  xValue = rawX;
+  yValue = rawY;
 
   if (abs(xValue) < config.accelerometerDeadZone)
   {
@@ -120,11 +170,35 @@ void Accelerometer::accelerometerRead()
     updateRxAxis();
     updateRyAxis();
   }
-  else if (priorRxValue != 0 || priorRyValue != 0)
+  else
   {
-    // velocity output was just turned off - zero the axes rather than
-    // leaving them stuck at their last reported value
-    resetVelocity();
+    // velocity output is turned off - make sure the axes aren't left stuck at
+    // their last reported value
+    zeroVelocityOutput();
+  }
+}
+
+// Force every accelerometer output to zero: position, velocity, and any held
+// tilt button. Only sends a USB update for outputs that weren't already zero,
+// so calling this every loop while gated costs nothing once settled.
+void Accelerometer::zeroOutputs() {
+  xValue = 0;
+  yValue = 0;
+
+  // with zero input this releases a tilt button that was being held
+  processTiltButton();
+
+  updateXAxis();
+  updateYAxis();
+  zeroVelocityOutput();
+}
+
+// Clear the velocity integrator and zero the Rx/Ry axes if they aren't already
+void Accelerometer::zeroVelocityOutput() {
+  // also clears the time baseline, so the gap isn't integrated when reads resume
+  resetVelocity();
+
+  if (priorRxValue != 0 || priorRyValue != 0) {
     Gamepad1.rxAxis(0);
     Gamepad1.ryAxis(0);
     priorRxValue = 0;
@@ -134,7 +208,16 @@ void Accelerometer::accelerometerRead()
 }
 
 int16_t Accelerometer::getRawAccelValue() {
-  return (config.orientation > 7) ? mpu.getZ() : mpu.getX();
+  return mpu.getX();
+}
+
+// "Mounted on side" swaps Z in for the sensor axis that is vertical (carrying
+// gravity). applyOrientationTransform() pre-rotates the readings by 90 degrees
+// (x = -y, y = x), so the slot that used to be the original board's "x" is now
+// fed by the sensor's Y channel, and that's the channel Z replaces. Z is negated
+// so the result matches the original x = Z behaviour after the pre-rotation.
+int16_t Accelerometer::getRawAccelValueY() {
+  return mountedOnSide ? -mpu.getZ() : mpu.getY();
 }
 
 void Accelerometer::applyOrientationTransform(int16_t& x, int16_t& y) {
@@ -145,30 +228,25 @@ void Accelerometer::applyOrientationTransform(int16_t& x, int16_t& y) {
   x = -y;
   y = rawX;
 
-  int16_t temp = x;
-  switch (orientation) {
-    case RIGHT:
-      x = -y; y = temp;
-      break;
-    case FORWARD:
-      x = -x; y = -y;
-      break;
-    case LEFT:
-      x = y; y = -temp;
-      break;
-    case UP_BACK:
-      x = -x;
-      break;
-    case UP_RIGHT:
-      x = -y; y = -temp;
-      break;
-    case UP_FORWARD:
-      y = -y;
-      break;
-    case UP_LEFT:
-      x = y; y = temp;
-      break;
+  // Pins facing up mirrors the board before it is rotated.
+  if (pinsFacingUp) {
+    x = -x;
   }
+
+  // Rotate by the calibrated board orientation. The X output uses the board
+  // rotation and the Y output uses board rotation + axis offset, so the two
+  // axes can be calibrated independently. With no offset this is an ordinary
+  // rotation, and 0/90/180/270 degrees match the old fixed orientations.
+  float fx = static_cast<float>(x);
+  float fy = static_cast<float>(y);
+  x = clampToInt16(fx * cosX - fy * sinX);
+  y = clampToInt16(fx * sinY + fy * cosY);
+}
+
+int16_t Accelerometer::clampToInt16(float value) {
+  if (value > 32767.0f) return 32767;
+  if (value < -32767.0f) return -32767;
+  return static_cast<int16_t>(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
 void Accelerometer::processTiltButton() {
@@ -210,7 +288,7 @@ void Accelerometer::processTiltButton() {
 
 void Accelerometer::updateXAxis() {
   if (priorXValue != xValue) {
-    Gamepad1.xAxis(static_cast<int16_t>(static_cast<float>(xValue) / localMax * 32767));
+    Gamepad1.xAxis(static_cast<int16_t>(static_cast<float>(xValue) * xAxisScale));
     priorXValue = xValue;
     config.updateUSB = true;
   }
@@ -218,7 +296,7 @@ void Accelerometer::updateXAxis() {
 
 void Accelerometer::updateYAxis() {
   if (priorYValue != yValue) {
-    Gamepad1.yAxis(static_cast<int16_t>(static_cast<float>(yValue) / localMaxY * 32767));
+    Gamepad1.yAxis(static_cast<int16_t>(static_cast<float>(yValue) * yAxisScale));
     priorYValue = yValue;
     config.updateUSB = true;
   }
@@ -267,15 +345,16 @@ void Accelerometer::updateVelocity() {
     return;
   }
 
-  if (config.accelerometerVelocityDecayTime > 0) {
-    float decayFactor = pow(0.5f, dt / (static_cast<float>(config.accelerometerVelocityDecayTime) / 1000.0f));
+  // half-life decay: 0.5^(dt / halfLife) == 2^(-dt * halvingsPerSec)
+  if (velocityHalvingsPerSec > 0.0f) {
+    float decayFactor = exp2f(-dt * velocityHalvingsPerSec);
     velocityX *= decayFactor;
     velocityY *= decayFactor;
   }
 
-  // convert a raw (int16 full-scale) acceleration reading to mm/s^2, then
-  // to an incremental mm/s contribution over this time step
-  float convFactor = (getGRange() / 32768.0f) * 9806.65f * dt;
+  // convert a raw (int16 full-scale) acceleration reading to an incremental
+  // mm/s contribution over this time step
+  float convFactor = velocityCountsToMmPerSec2 * dt;
   velocityX += static_cast<float>(xValue) * convFactor;
   velocityY += static_cast<float>(yValue) * convFactor;
 }
@@ -308,13 +387,18 @@ void Accelerometer::updateRyAxis() {
 
 void Accelerometer::sendAccelerometerState()
 {
-  ComSerial.print(F("A,"));
-  ComSerial.print((getRawAccelValue() - xValueOffset));
-  ComSerial.print(F(","));
-  ComSerial.print((mpu.getY() - yValueOffset));
-  ComSerial.print(F(","));
-  ComSerial.print(xValue);
-  ComSerial.print(F(","));
-  ComSerial.print(yValue);
-  ComSerial.print(F("\r\n"));
+  ConfigOut.print(F("A,"));
+  ConfigOut.print((getRawAccelValue() - xValueOffset));
+  ConfigOut.print(F(","));
+  ConfigOut.print((getRawAccelValueY() - yValueOffset));
+  ConfigOut.print(F(","));
+  ConfigOut.print(xValue);
+  ConfigOut.print(F(","));
+  ConfigOut.print(yValue);
+  // Which source the Y reading above came from, so the config tool knows
+  // whether it can preview unsaved orientation changes from these values.
+  ConfigOut.print(F(","));
+  ConfigOut.print(mountedOnSide ? 1 : 0);
+  ConfigOut.print(F("\r\n"));
+  ConfigOut.flush();
 }

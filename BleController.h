@@ -10,6 +10,10 @@
 #define BLE_REPORT_ID_GAMEPAD   2
 #define BLE_REPORT_ID_OUTPUT    3
 
+// How often to re-notify the last known keyboard/gamepad report, to recover
+// from a silently-dropped BLE notification (see BleController::update()).
+#define BLE_HEARTBEAT_INTERVAL_MS 25
+
 // Gamepad button bitmasks (Xbox layout)
 #define GP_BTN_A        0x0001u
 #define GP_BTN_B        0x0002u
@@ -42,8 +46,8 @@ public:
     void update();
 
     // Called from Communication.cpp for config tool
-    void updateButtonMap(const uint8_t* mapData, uint8_t len);
-    void updateDeviceName(const uint8_t* nameData, uint8_t len);
+    // Re-reads the button map from config after the config tool saves it
+    void applyConfig();
 
 private:
     // BLE HID report structures
@@ -81,9 +85,7 @@ private:
     };
 
     void initButtonMap();
-    void saveButtonMap();
     void loadDeviceName(char* nameBuf, size_t bufSize);
-    void saveDeviceName(const uint8_t* buf);
     uint8_t buildDpad(bool up, bool right, bool down, bool left);
     void processGamepadMode();
     void processKeyboardMode();

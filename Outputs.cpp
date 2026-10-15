@@ -4,11 +4,40 @@
 #include <Wire.h>
 #include "Enums.h"
 #include "Globals.h"
+#include "OutputTask.h"
 #include "Pins.h"
+#include "Threading.h"
+
+#define CONFIG_MCPWM_SUPPRESS_DEPRECATE_WARN 1
+#include "driver/mcpwm.h"
 
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x41);
 Adafruit_PWMServoDriver pwm2 = Adafruit_PWMServoDriver(0x42);
+
+// Outputs 8-14 get real hardware PWM via the MCPWM peripheral (separate from
+// LEDC, which is maxed out at 8 channels on outputs 0-7). Each entry maps
+// output index (8..14) to its MCPWM unit/timer/generator.
+static const mcpwm_unit_t MCPWM_UNIT_FOR_OUTPUT[NUM_MCPWM_OUTPUTS] = {
+  MCPWM_UNIT_0, MCPWM_UNIT_0, MCPWM_UNIT_0, MCPWM_UNIT_0, MCPWM_UNIT_0, MCPWM_UNIT_0, MCPWM_UNIT_1
+};
+static const mcpwm_timer_t MCPWM_TIMER_FOR_OUTPUT[NUM_MCPWM_OUTPUTS] = {
+  MCPWM_TIMER_0, MCPWM_TIMER_0, MCPWM_TIMER_1, MCPWM_TIMER_1, MCPWM_TIMER_2, MCPWM_TIMER_2, MCPWM_TIMER_0
+};
+static const mcpwm_generator_t MCPWM_GEN_FOR_OUTPUT[NUM_MCPWM_OUTPUTS] = {
+  MCPWM_GEN_A, MCPWM_GEN_B, MCPWM_GEN_A, MCPWM_GEN_B, MCPWM_GEN_A, MCPWM_GEN_B, MCPWM_GEN_A
+};
+static const mcpwm_io_signals_t MCPWM_SIGNAL_FOR_OUTPUT[NUM_MCPWM_OUTPUTS] = {
+  MCPWM0A, MCPWM0B, MCPWM1A, MCPWM1B, MCPWM2A, MCPWM2B, MCPWM0A
+};
+
+// Probes an I2C address for an ACK, without knowing/caring what's there.
+// Used only to report expansion board presence to the config tool - boards
+// are still begin()'d unconditionally below regardless of what this finds.
+static bool i2cDevicePresent(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  return Wire.endTransmission() == 0;
+}
 
 Outputs::Outputs() {
    for (int index = 0; index < numberOutputs; index++) {
@@ -22,8 +51,32 @@ void Outputs::init() {
     ledcAttach(outputList[i], 1000, 8); // pin, 1kHz, 8-bit resolution
   }
 
+  // Configure MCPWM channels for outputs 8-14
+  mcpwm_config_t mcpwmConf;
+  mcpwmConf.frequency = 1000; // match the LEDC outputs' 1kHz
+  mcpwmConf.cmpr_a = 0;
+  mcpwmConf.cmpr_b = 0;
+  mcpwmConf.duty_mode = MCPWM_DUTY_MODE_0;
+  mcpwmConf.counter_mode = MCPWM_UP_COUNTER;
+  for (int i = 0; i < NUM_MCPWM_OUTPUTS; i++) {
+    mcpwm_gpio_init(MCPWM_UNIT_FOR_OUTPUT[i], MCPWM_SIGNAL_FOR_OUTPUT[i], outputList[NUM_PWM_OUTPUTS + i]);
+    if (MCPWM_GEN_FOR_OUTPUT[i] == MCPWM_GEN_A) {
+      // Generator B on the same timer is initialized alongside A, so only init once per timer
+      mcpwm_init(MCPWM_UNIT_FOR_OUTPUT[i], MCPWM_TIMER_FOR_OUTPUT[i], &mcpwmConf);
+    }
+  }
+
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
 
+  config.expansionBoard1State = i2cDevicePresent(0x40) ? 0x40 : 0;
+  config.expansionBoard2State = i2cDevicePresent(0x41) ? 0x41 : 0;
+  config.expansionBoard3State = i2cDevicePresent(0x42) ? 0x42 : 0;
+
+  // Always call begin() even if a board wasn't detected above - it's what
+  // allocates the library's internal I2C device handle, and later output
+  // writes to a missing board (e.g. from turnOff() below) go through that
+  // handle unconditionally. Skipping begin() left it null and crashed on
+  // the first write to an undetected board.
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
   pwm.setPWMFreq(90);
@@ -46,26 +99,30 @@ void Outputs::turnOff() {
   }
 }
 
+void Outputs::requestOutput(unsigned char outputId, unsigned char outputValue) {
+  postOutputCommand(CMD_SET_OUTPUT, outputId, outputValue);
+}
+
 void Outputs::updateOutput(unsigned char outputId, unsigned char outputValue) {
   if (outputValue > config.maxOutputState[outputId]) {
     outputValue = config.maxOutputState[outputId];
   }
-  if (config.nightMode == true && (config.toySpecialOption[outputId] == NOISY || config.toySpecialOption[outputId] == SHARED)) {
+  if (config.nightMode == true && (config.getOutputType(outputId) == NOISY || config.getOutputType(outputId) == SHARED)) {
     outputValue = 0;
   }
-  if (config.toySpecialOption[outputId] == SHARED && outputValue > 0 && outputValues[outputId] > 0) {
+  if (config.getOutputType(outputId) == SHARED && outputValue > 0 && outputValues[outputId] > 0) {
     for (int i = 0; i < 9; i++) {
-      if(config.toySpecialOption[i] == SHARED && outputValues[i] == 0) {
+      if(config.getOutputType(i) == SHARED && outputValues[i] == 0) {
         outputId = i;
         virtualOutputOn[i] = 1;
         break;
       }
     }
   }
-  if (config.toySpecialOption[outputId] == SHARED && outputValue == 0 && outputId < 10) {
+  if (config.getOutputType(outputId) == SHARED && outputValue == 0 && outputId < 10) {
     if (virtualOutputOn[outputId] == 0) {
       for (int i = 0; i < 9; i++) {
-        if(config.toySpecialOption[i] == SHARED && outputValues[i] > 0 && virtualOutputOn[i] > 0) {
+        if(config.getOutputType(i) == SHARED && outputValues[i] > 0 && virtualOutputOn[i] > 0) {
           updateOutputInternal(i, 0);
           virtualOutputOn[i] = 0;
         }
@@ -78,6 +135,12 @@ void Outputs::updateOutput(unsigned char outputId, unsigned char outputValue) {
 }
 
 void Outputs::updateOutputInternal(unsigned char outputId, unsigned char outputValue) {
+  if (!config.isOutputPwm(outputId)) {
+    // On/off-only output: snap to fully off or fully on (capped at the
+    // configured max, same ceiling a PWM output would respect) instead of
+    // passing an analog value through to hardware that can't dim.
+    outputValue = (outputValue > 0) ? config.maxOutputState[outputId] : 0;
+  }
   outputValues[outputId] = outputValue;
   if (outputValue != 0) {
     timeTurnedOn[outputId] = millis();
@@ -87,12 +150,9 @@ void Outputs::updateOutputInternal(unsigned char outputId, unsigned char outputV
       // PWM output via LEDC (outputs 0-7)
       ledcWrite(outputList[outputId], outputValue);
     } else {
-      // Digital output (outputs 8-14)
-      if (outputValue > 127) {
-        digitalWrite(outputList[outputId], HIGH);
-      } else {
-        digitalWrite(outputList[outputId], LOW);
-      }
+      // PWM output via MCPWM (outputs 8-14)
+      int mcpwmIndex = outputId - NUM_PWM_OUTPUTS;
+      mcpwm_set_duty(MCPWM_UNIT_FOR_OUTPUT[mcpwmIndex], MCPWM_TIMER_FOR_OUTPUT[mcpwmIndex], MCPWM_GEN_FOR_OUTPUT[mcpwmIndex], (outputValue / 255.0f) * 100.0f);
     }
   } else {
     // PCA9685 expansion board outputs
@@ -123,6 +183,8 @@ void Outputs::checkResetOutputs() {
 }
 
 void Outputs::updateOutputActual(unsigned char outputId, int outputValueStart, int outputValueFinish) {
+  // Wire is shared with the MPU6050 read on the input pass
+  ScopedLock i2c(i2cMutex);
   if (outputId < 16) {
     pwm.setPWM(outputId, outputValueStart, outputValueFinish);
   }
@@ -134,12 +196,27 @@ void Outputs::updateOutputActual(unsigned char outputId, int outputValueStart, i
   }
 }
 
-void Outputs::sendOutputState() {
-  ComSerial.print(F("O,"));
-  for (int i = 0; i < 63; i++) {
-    ComSerial.print(outputValues[i]);
-    ComSerial.print(F(","));
+void Outputs::pulseOutputs(unsigned char* outputIds, unsigned char count, unsigned char times) {
+  if (times == 0) times = 1;
+  for (uint8_t t = 0; t < times; t++) {
+    for (uint8_t i = 0; i < count; i++) {
+      if (outputIds[i] > 0) updateOutput(outputIds[i] - 1, 255);
+    }
+    delay(100);
+    for (uint8_t i = 0; i < count; i++) {
+      if (outputIds[i] > 0) updateOutput(outputIds[i] - 1, 0);
+    }
+    delay(100);
   }
-  ComSerial.print(config.nightMode);
-  ComSerial.print(F("\r\n"));
+}
+
+void Outputs::sendOutputState() {
+  ConfigOut.print(F("O,"));
+  for (int i = 0; i < 63; i++) {
+    ConfigOut.print(outputValues[i]);
+    ConfigOut.print(F(","));
+  }
+  ConfigOut.print(config.nightMode);
+  ConfigOut.print(F("\r\n"));
+  ConfigOut.flush();
 }
