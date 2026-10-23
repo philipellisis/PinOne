@@ -98,16 +98,22 @@ void Communication::sendAdmin() {
       break;
     case GET_CONFIG:
       {
+        // Discard the rest of the GET_CONFIG admin trigger's own OUTPUT report
+        // (it's always zero-padded out to the full 63-byte HID payload, even
+        // though only 9 bytes were meaningful). Without this,
+        // updateConfigFromSerial()'s exact-byte-count reads would consume that
+        // padding as if it were the start of the config data, shifting every
+        // field read for the rest of the transfer. Only that known amount is
+        // skipped, and before waiting on the input pass, so config bytes that
+        // have already started arriving (e.g. if the lock below is slow to
+        // come free) are never thrown away with it.
+        const uint8_t COMMAND_PADDING = 63 - 9;
+        for (uint8_t i = 0; i < COMMAND_PADDING && HidConfig.available(); i++) {
+          HidConfig.read();
+        }
         // Pause the input pass while config is rewritten, so it never reads
         // a half-updated profile or accelerometer setting
         ScopedLock inputPause(inputMutex);
-        // Discard any bytes still queued from the GET_CONFIG admin trigger's
-        // own OUTPUT report (it's always zero-padded out to the full 63-byte
-        // HID payload, even though only 9 bytes were meaningful). Without
-        // this, updateConfigFromSerial()'s exact-byte-count reads would
-        // consume that padding as if it were the start of the config data,
-        // shifting every field read for the rest of the transfer.
-        while (HidConfig.available()) { HidConfig.read(); }
         config.updateConfigFromSerial();
         // Button map is part of the main config now; pick up the new mapping
         bleController.applyConfig();

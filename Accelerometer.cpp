@@ -159,6 +159,11 @@ void Accelerometer::accelerometerRead()
   }
 
   applyOrientationTransform(xValue, yValue);
+  if (config.accelerometerSoftLimitEnabled)
+  {
+    xValue = softLimit(xValue, localMax);
+    yValue = softLimit(yValue, localMaxY);
+  }
   processTiltButton();
 
   updateXAxis();
@@ -249,6 +254,25 @@ int16_t Accelerometer::clampToInt16(float value) {
   return static_cast<int16_t>(value >= 0.0f ? value + 0.5f : value - 0.5f);
 }
 
+// Soft limit: linear up to the knee (a percentage of `limit`, the axis max),
+// then compressed with a tanh curve that approaches `limit` but never reaches
+// it, so harder and harder hits are needed to get closer. The curve leaves the
+// knee at SOFT_LIMIT_SLOPE times the linear slope, so the drop-off starts
+// right at the knee rather than easing in; smaller values are more aggressive.
+// Keep in sync with softLimit() in the config tool's accelerometer-position
+// component.
+static const float SOFT_LIMIT_SLOPE = 0.3f;
+
+int16_t Accelerometer::softLimit(int16_t value, int limit) const {
+  float knee = limit * (config.accelerometerSoftLimitKnee / 100.0f);
+  float range = limit - knee;
+  float magnitude = fabsf(static_cast<float>(value));
+  if (range <= 0.0f || magnitude <= knee) return value;
+
+  float limited = knee + range * tanhf(SOFT_LIMIT_SLOPE * (magnitude - knee) / range);
+  return clampToInt16(value < 0 ? -limited : limited);
+}
+
 void Accelerometer::processTiltButton() {
   if (config.tiltButton >= 24 || config.tiltButtonRight >=32 || config.tiltButtonLeft >= 32 || config.tiltButtonUp >= 32 || config.tiltButtonDown >= 32) return;
 
@@ -288,7 +312,7 @@ void Accelerometer::processTiltButton() {
 
 void Accelerometer::updateXAxis() {
   if (priorXValue != xValue) {
-    Gamepad1.xAxis(static_cast<int16_t>(static_cast<float>(xValue) * xAxisScale));
+    Gamepad1.xAxis(clampToInt16(static_cast<float>(xValue) * xAxisScale));
     priorXValue = xValue;
     config.updateUSB = true;
   }
@@ -296,7 +320,7 @@ void Accelerometer::updateXAxis() {
 
 void Accelerometer::updateYAxis() {
   if (priorYValue != yValue) {
-    Gamepad1.yAxis(static_cast<int16_t>(static_cast<float>(yValue) * yAxisScale));
+    Gamepad1.yAxis(clampToInt16(static_cast<float>(yValue) * yAxisScale));
     priorYValue = yValue;
     config.updateUSB = true;
   }

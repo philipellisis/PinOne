@@ -102,6 +102,8 @@ void Config::init() {
     accelerometerVelocityEnabled = prefs.getBool("accelVelEn", accelerometerVelocityEnabled);
     accelerometerVelocityDecayTime = prefs.getInt("accelVelDecay", accelerometerVelocityDecayTime);
     accelerometerVelocityScale = prefs.getInt("accelVelScale", accelerometerVelocityScale);
+    accelerometerSoftLimitEnabled = prefs.getBool("accelSoftEn", accelerometerSoftLimitEnabled);
+    accelerometerSoftLimitKnee = prefs.getUChar("accelSoftKnee", accelerometerSoftLimitKnee);
 
     legacySerialDofEnabled = prefs.getBool("legacyDofSer", legacySerialDofEnabled);
 
@@ -211,6 +213,8 @@ void Config::saveConfig() {
     prefs.putBool("accelVelEn", accelerometerVelocityEnabled);
     prefs.putInt("accelVelDecay", accelerometerVelocityDecayTime);
     prefs.putInt("accelVelScale", accelerometerVelocityScale);
+    prefs.putBool("accelSoftEn", accelerometerSoftLimitEnabled);
+    prefs.putUChar("accelSoftKnee", accelerometerSoftLimitKnee);
 
     prefs.putBool("legacyDofSer", legacySerialDofEnabled);
 
@@ -335,6 +339,10 @@ void Config::updateConfigFromSerial() {
     if (deviceName[0] == '\0') strcpy(deviceName, "PinOne");
     bleMapStored = true;
 
+    accelerometerSoftLimitEnabled = blockRead();
+    unsigned char softKnee = blockRead();  // read once; constrain() is a macro
+    accelerometerSoftLimitKnee = constrain(softKnee, 1, 99);
+
     if(blockRead() != 42) {
       done = 1;
     }
@@ -450,6 +458,9 @@ void Config::sendConfig() {
     printComma(expansionBoard2State);
     printComma(expansionBoard3State);
     printComma(mpuState);
+
+    printComma(accelerometerSoftLimitEnabled);
+    printComma(accelerometerSoftLimitKnee);
 
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();

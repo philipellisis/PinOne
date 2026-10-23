@@ -53,6 +53,7 @@ class Accelerometer {
     float cosY = 1.0f;
     float sinY = 0.0f;
     static int16_t clampToInt16(float value);
+    int16_t softLimit(int16_t value, int limit) const;
     int16_t localMax = 0;
     int16_t localMaxY = 0;
     uint8_t tiltSuppressTime = 0;

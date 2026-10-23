@@ -173,8 +173,14 @@ class Config {
     // feature). When enabled, in addition to the usual raw acceleration on the
     // X/Y gamepad axes, the integrated velocity is reported on the Rx/Ry axes.
     bool accelerometerVelocityEnabled = false;
-    int accelerometerVelocityDecayTime = 2000;  // velocity half-life, in milliseconds
+    int accelerometerVelocityDecayTime = 100;  // velocity half-life, in milliseconds
     int accelerometerVelocityScale = 100;       // INT16 units per mm/s
+
+    // Soft limit on the acceleration reading. Below the knee the response is
+    // linear; above it the reading is compressed toward accelerometerMax (and
+    // never past it), so it takes increasingly hard hits to go further.
+    bool accelerometerSoftLimitEnabled = false;
+    unsigned char accelerometerSoftLimitKnee = 60;  // knee position, as a percent of the max
 
     // Legacy RS232/CDC serial DOF fallback for un-updated DirectOutput
     // installs (old DOF only knows the old serial protocol; admin/config
