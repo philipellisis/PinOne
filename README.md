@@ -183,7 +183,7 @@ Presence of each PCA9685 board and the accelerometer (and the address it answere
 
 ## Firmware Version
 
-V2 reports version `3.0.0` to the config tool (V1 reported `2.2.0`).
+V2 reports version `3.1.0` to the config tool (V1 reported `2.2.0`).
 
 ## Migration Notes
 
