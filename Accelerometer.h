@@ -17,6 +17,10 @@ class Accelerometer {
     void centerAccelerometer();
     int16_t getXValue() const { return xValue; }
     int16_t getYValue() const { return yValue; }
+    // Full-scale (+/-32767) axis values, as sent over USB: the raw value scaled
+    // by 32767 / accelerometerMax
+    int16_t getXAxis() const { return clampToInt16(static_cast<float>(xValue) * xAxisScale); }
+    int16_t getYAxis() const { return clampToInt16(static_cast<float>(yValue) * yAxisScale); }
     void applyOrientationTransform(int16_t& x, int16_t& y);
     int16_t getRawAccelValue();
     int16_t getRawAccelValueY();

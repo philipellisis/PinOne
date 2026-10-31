@@ -104,6 +104,7 @@ void Config::init() {
     accelerometerVelocityScale = prefs.getInt("accelVelScale", accelerometerVelocityScale);
     accelerometerSoftLimitEnabled = prefs.getBool("accelSoftEn", accelerometerSoftLimitEnabled);
     accelerometerSoftLimitKnee = prefs.getUChar("accelSoftKnee", accelerometerSoftLimitKnee);
+    bleXboxMode = prefs.getBool("bleXbox", bleXboxMode);
 
     legacySerialDofEnabled = prefs.getBool("legacyDofSer", legacySerialDofEnabled);
 
@@ -215,6 +216,7 @@ void Config::saveConfig() {
     prefs.putInt("accelVelScale", accelerometerVelocityScale);
     prefs.putBool("accelSoftEn", accelerometerSoftLimitEnabled);
     prefs.putUChar("accelSoftKnee", accelerometerSoftLimitKnee);
+    prefs.putBool("bleXbox", bleXboxMode);
 
     prefs.putBool("legacyDofSer", legacySerialDofEnabled);
 
@@ -342,6 +344,7 @@ void Config::updateConfigFromSerial() {
     accelerometerSoftLimitEnabled = blockRead();
     unsigned char softKnee = blockRead();  // read once; constrain() is a macro
     accelerometerSoftLimitKnee = constrain(softKnee, 1, 99);
+    bleXboxMode = blockRead();
 
     if(blockRead() != 42) {
       done = 1;
@@ -461,6 +464,7 @@ void Config::sendConfig() {
 
     printComma(accelerometerSoftLimitEnabled);
     printComma(accelerometerSoftLimitKnee);
+    printComma(bleXboxMode);
 
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();

@@ -174,6 +174,7 @@ Presence of each PCA9685 board and the accelerometer (and the address it answere
 - **Accelerometer**: X/Y position on the gamepad X/Y axes, with adjustable range, dead zone, orientation (board rotation in 5° steps, pins up, mounted on side), auto-centering, tilt buttons, and optional velocity output on Rx/Ry
 - **Input profiles**: up to 4 keyboard-mapping profiles, switched by holding a configurable button, with output pulses/light flash to confirm the active profile
 - **BLE HID**: Xbox-style gamepad + keyboard + DOF output report, native NimBLE; device name and button map are configurable
+- **BLE Xbox mode**: optional profile (config tool toggle, applies after restart) that advertises as a stock Xbox Series X controller (Microsoft VID `0x045E`, PID `0x0B13`) instead of the keyboard + gamepad + DOF profile. Gamepad only (no keyboard, no BLE DOF); the host's rumble motors switch outputs 1 (strong) and 2 (weak) fully on/off; plunger is on the right stick Y axis
 - **Light Show**: attract mode with random animations, night mode
 - **Button Lock**: a configurable button (hold or toggle, like night mode) disables all buttons except an allowed set (default 1, 2, 3, 4, 9, 23, 24) to prevent accidental bumps; state shows in the config tool's Inputs page
 - **IR Transmitter**: NEC, Samsung, Sony protocols via RMT peripheral

@@ -4,6 +4,7 @@
 #include "NimBLEDevice.h"
 #include "NimBLEHIDDevice.h"
 #include "Outputs.h"
+#include "XboxDescriptor.h"
 
 // Report IDs
 #define BLE_REPORT_ID_KEYBOARD  1
@@ -56,6 +57,19 @@ private:
         uint8_t keys[6]   = {};
     };
 
+    // Xbox Series X input report (Report ID 1), matches xboxReportMap
+    struct __attribute__((packed)) XboxReport {
+        uint16_t lx      = 32768;
+        uint16_t ly      = 32768;
+        uint16_t rx      = 32768;
+        uint16_t ry      = 32768;
+        uint16_t brake   = 0;    // left trigger, 10 bits
+        uint16_t accel   = 0;    // right trigger, 10 bits
+        uint8_t  dpad    = DPAD_CENTERED;
+        uint16_t buttons = 0;
+        uint8_t  share   = 0;
+    };
+
     struct __attribute__((packed)) GamepadReport {
         uint16_t buttons = 0;
         uint8_t  dpad    = DPAD_CENTERED;
@@ -102,6 +116,18 @@ private:
 
     KeyReport     _kbState{};
     GamepadReport _gpState{};
+    XboxReport    _xbState{};
+
+    // Latched at begin(): only one profile is ever advertised, so a config
+    // change to bleXboxMode takes effect after a restart.
+    bool _xboxMode = false;
+
+    // Xbox rumble motors running (magnitude > 0) as last set by the host, mapped
+    // to outputs 1 (strong motor) and 2 (weak motor) in applyOutputPackets().
+    volatile bool _rumbleStrong = false;
+    volatile bool _rumbleWeak   = false;
+    bool _appliedRumbleStrong = false;
+    bool _appliedRumbleWeak   = false;
 
     // DOF output packet received from the BLE host
     uint8_t _outputPkt[8] = {};

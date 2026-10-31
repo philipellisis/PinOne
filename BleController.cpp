@@ -23,7 +23,7 @@ static const uint8_t hidReportMap[] = {
     0x75, 0x04, 0x95, 0x01, 0x81, 0x42,
     0x75, 0x04, 0x95, 0x01, 0x15, 0x00, 0x25, 0x00,
     0x35, 0x00, 0x45, 0x00, 0x65, 0x00, 0x81, 0x03,
-    // 5 axes
+    // 5 axes: X/Y nudge, Rx/Ry triggers, Z plunger (matches the USB gamepad)
     0x05, 0x01, 0x09, 0x01, 0xA1, 0x00,
     0x09, 0x30, 0x09, 0x31, 0x09, 0x33, 0x09, 0x34, 0x09, 0x32,
     0x15, 0x00, 0x27, 0xFF, 0xFF, 0x00, 0x00,
@@ -59,6 +59,14 @@ public:
     void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo& info) override {
         const uint8_t* data = chr->getValue().data();
         size_t len          = chr->getValue().length();
+        if (_ctrl->_xboxMode) {
+            // [dcEnableActuators, leftTrigger, rightTrigger, weak, strong, ...]
+            if (len < 5) return;
+            bool enabled = (data[0] & 0x0F) != 0;
+            _ctrl->_rumbleWeak   = enabled && data[3] > 0;
+            _ctrl->_rumbleStrong = enabled && data[4] > 0;
+            return;
+        }
         if (len < 8) return;
         memcpy(_ctrl->_outputPkt, data, 8);
         _ctrl->_outputDirty = true;
@@ -139,7 +147,14 @@ void BleController::loadDeviceName(char* nameBuf, size_t bufSize) {
 // =====================================================================
 
 void BleController::begin() {
-    loadDeviceName(_deviceName, sizeof(_deviceName));
+    _xboxMode = config.bleXboxMode;
+    if (_xboxMode) {
+        // Hosts identify the controller by name and VID/PID, so use the stock ones
+        strncpy(_deviceName, "Xbox Wireless Controller", sizeof(_deviceName) - 1);
+        _deviceName[sizeof(_deviceName) - 1] = '\0';
+    } else {
+        loadDeviceName(_deviceName, sizeof(_deviceName));
+    }
     initButtonMap();
 
     NimBLEDevice::init(_deviceName);
@@ -153,16 +168,25 @@ void BleController::begin() {
     _server->advertiseOnDisconnect(false);
 
     _hidDevice = new NimBLEHIDDevice(_server);
-    _hidDevice->setManufacturer("PinOne");
-    _hidDevice->setPnp(0x02, 0x39F5, 0x9208, 0x0100);  // Cleveland Software Design's assigned USB-IF vendor ID
     _hidDevice->setHidInfo(0x00, 0x01);
     _hidDevice->setBatteryLevel(100);
-    _hidDevice->setReportMap((uint8_t*)hidReportMap, sizeof(hidReportMap));
 
-    _kbReport = _hidDevice->getInputReport(BLE_REPORT_ID_KEYBOARD);
-    _gpReport = _hidDevice->getInputReport(BLE_REPORT_ID_GAMEPAD);
+    if (_xboxMode) {
+        _hidDevice->setManufacturer("Microsoft");
+        _hidDevice->setPnp(0x02, XBOX_VENDOR_ID, XBOX_PRODUCT_ID, XBOX_BCD_DEVICE_ID);
+        _hidDevice->setReportMap((uint8_t*)xboxReportMap, sizeof(xboxReportMap));
 
-    _outputReport = _hidDevice->getFeatureReport(BLE_REPORT_ID_OUTPUT);
+        _gpReport = _hidDevice->getInputReport(XBOX_INPUT_REPORT_ID);
+        _outputReport = _hidDevice->getOutputReport(XBOX_OUTPUT_REPORT_ID);
+    } else {
+        _hidDevice->setManufacturer("PinOne");
+        _hidDevice->setPnp(0x02, 0x39F5, 0x9208, 0x0100);  // Cleveland Software Design's assigned USB-IF vendor ID
+        _hidDevice->setReportMap((uint8_t*)hidReportMap, sizeof(hidReportMap));
+
+        _kbReport = _hidDevice->getInputReport(BLE_REPORT_ID_KEYBOARD);
+        _gpReport = _hidDevice->getInputReport(BLE_REPORT_ID_GAMEPAD);
+        _outputReport = _hidDevice->getFeatureReport(BLE_REPORT_ID_OUTPUT);
+    }
     static OutputCallbacks outCb(this);
     _outputReport->setCallbacks(&outCb);
 
@@ -172,19 +196,26 @@ void BleController::begin() {
     adv->setName(_deviceName);
     adv->addServiceUUID(_hidDevice->getHidService()->getUUID());
     adv->addServiceUUID(_hidDevice->getBatteryService()->getUUID());
-    adv->setAppearance(HID_KEYBOARD);
+    adv->setAppearance(_xboxMode ? HID_GAMEPAD : HID_KEYBOARD);
     adv->enableScanResponse(true);
     adv->start();
 }
 
 void BleController::update() {
-    // Apply any DOF output packets from the BLE host
+    // A dropped link can't send a rumble-off, so stop the solenoids here
+    if (_xboxMode && !_connected) {
+        _rumbleStrong = false;
+        _rumbleWeak   = false;
+    }
+
+    // Apply any DOF output packets (or Xbox rumble) from the BLE host
     applyOutputPackets();
 
     if (!_connected) return;
 
     // Check if keyboard mode changed
-    uint8_t kbdMode = config.disableButtonPressWhenKeyboardEnabled;
+    // The Xbox profile has no keyboard, so every button goes out as gamepad
+    uint8_t kbdMode = _xboxMode ? 0 : config.disableButtonPressWhenKeyboardEnabled;
     bool modeChanged = (kbdMode != _prevKbdMode);
 
     if (modeChanged) {
@@ -257,7 +288,7 @@ void BleController::processGamepadMode() {
     uint16_t curButtons = 0;
     bool dpadUp = false, dpadDown = false, dpadLeft = false, dpadRight = false;
     uint16_t curLT = 0, curRT = 0;
-    uint8_t kbdMode = config.disableButtonPressWhenKeyboardEnabled;
+    uint8_t kbdMode = _xboxMode ? 0 : config.disableButtonPressWhenKeyboardEnabled;
 
     for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
         if (!config.processedButtonState[i]) continue;
@@ -293,8 +324,10 @@ void BleController::processGamepadMode() {
 
     // Read analog axes directly from globals
     int16_t plungerVal = plunger.getAdjustedValue();
-    int16_t accelX = accel.getXValue();
-    int16_t accelY = accel.getYValue();
+    // Scaled to the full axis range like the USB gamepad; the raw values only
+    // span +/-accelerometerMax, which a host would read as barely moving
+    int16_t accelX = accel.getXAxis();
+    int16_t accelY = accel.getYAxis();
 
     if (curButtons != _prevGpButtons || dpad != _prevDpad ||
         accelX != _prevLX || accelY != _prevLY || plungerVal != _prevPlunger ||
@@ -319,6 +352,21 @@ void BleController::processGamepadMode() {
 }
 
 void BleController::applyOutputPackets() {
+    if (_xboxMode) {
+        // Rumble motors drive outputs 1 and 2 (ids 0 and 1) fully on or off
+        bool strong = _rumbleStrong;
+        bool weak   = _rumbleWeak;
+        if (strong != _appliedRumbleStrong) {
+            outputs.requestOutput(0, strong ? 255 : 0);
+            _appliedRumbleStrong = strong;
+        }
+        if (weak != _appliedRumbleWeak) {
+            outputs.requestOutput(1, weak ? 255 : 0);
+            _appliedRumbleWeak = weak;
+        }
+        return;
+    }
+
     uint8_t buf[8];
     while (getOutputPacket(buf)) {
         if (buf[0] == 0xFF) {
@@ -379,6 +427,20 @@ void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
                                  uint16_t lt, uint16_t rt,
                                  uint16_t z) {
     if (!_connected || !_gpReport) return;
+    if (_xboxMode) {
+        // Same axes as the combined profile: accelerometer on the left stick,
+        // plunger on Rz (right stick Y), triggers 0-1023
+        _xbState.lx      = lx;
+        _xbState.ly      = ly;
+        _xbState.ry      = z;
+        _xbState.brake   = lt >> 6;
+        _xbState.accel   = rt >> 6;
+        _xbState.dpad    = dpad;
+        _xbState.buttons = buttons;
+        _gpReport->setValue((uint8_t*)&_xbState, sizeof(_xbState));
+        _gpReport->notify((uint8_t*)&_xbState, sizeof(_xbState));
+        return;
+    }
     _gpState.buttons = buttons;
     _gpState.dpad    = dpad;
     _gpState.lx      = lx;

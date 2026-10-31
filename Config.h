@@ -95,6 +95,10 @@ class Config {
     // True once the map/name came from the main config (prefs or config tool), not
     // the legacy BleController storage. Not persisted.
     bool bleMapStored = false;
+    // False = the combined keyboard + gamepad + DOF profile; true = emulate an
+    // Xbox Series X controller (gamepad only; rumble drives outputs 1 and 2).
+    // Only one profile is ever advertised, so this applies after a restart.
+    bool bleXboxMode = false;
 
     unsigned char done = 0;
     bool nightMode = false;
