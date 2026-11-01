@@ -10,6 +10,11 @@ static int countsToMv(int counts) {
   return (counts * 3300 + 511) / 1023;
 }
 
+// An axis index outside the valid range falls back to its default
+static unsigned char validAxis(unsigned char axis, unsigned char count, unsigned char fallback) {
+  return axis < count ? axis : fallback;
+}
+
 Config::Config() {
 }
 
@@ -104,6 +109,16 @@ void Config::init() {
     accelerometerVelocityScale = prefs.getInt("accelVelScale", accelerometerVelocityScale);
     accelerometerSoftLimitEnabled = prefs.getBool("accelSoftEn", accelerometerSoftLimitEnabled);
     accelerometerSoftLimitKnee = prefs.getUChar("accelSoftKnee", accelerometerSoftLimitKnee);
+    bleXboxMode = prefs.getBool("bleXbox", bleXboxMode);
+
+    usbNudgeXAxis = validAxis(prefs.getUChar("usbAxNudX", usbNudgeXAxis), USB_AXIS_COUNT, 0);
+    usbNudgeYAxis = validAxis(prefs.getUChar("usbAxNudY", usbNudgeYAxis), USB_AXIS_COUNT, 1);
+    usbPlungerAxis = validAxis(prefs.getUChar("usbAxPlg", usbPlungerAxis), USB_AXIS_COUNT, 2);
+    usbVelocityXAxis = validAxis(prefs.getUChar("usbAxVelX", usbVelocityXAxis), USB_AXIS_COUNT, 3);
+    usbVelocityYAxis = validAxis(prefs.getUChar("usbAxVelY", usbVelocityYAxis), USB_AXIS_COUNT, 4);
+    bleNudgeXAxis = validAxis(prefs.getUChar("bleAxNudX", bleNudgeXAxis), BLE_AXIS_COUNT, 0);
+    bleNudgeYAxis = validAxis(prefs.getUChar("bleAxNudY", bleNudgeYAxis), BLE_AXIS_COUNT, 1);
+    blePlungerAxis = validAxis(prefs.getUChar("bleAxPlg", blePlungerAxis), BLE_AXIS_COUNT, 3);
 
     legacySerialDofEnabled = prefs.getBool("legacyDofSer", legacySerialDofEnabled);
 
@@ -215,6 +230,16 @@ void Config::saveConfig() {
     prefs.putInt("accelVelScale", accelerometerVelocityScale);
     prefs.putBool("accelSoftEn", accelerometerSoftLimitEnabled);
     prefs.putUChar("accelSoftKnee", accelerometerSoftLimitKnee);
+    prefs.putBool("bleXbox", bleXboxMode);
+
+    prefs.putUChar("usbAxNudX", usbNudgeXAxis);
+    prefs.putUChar("usbAxNudY", usbNudgeYAxis);
+    prefs.putUChar("usbAxPlg", usbPlungerAxis);
+    prefs.putUChar("usbAxVelX", usbVelocityXAxis);
+    prefs.putUChar("usbAxVelY", usbVelocityYAxis);
+    prefs.putUChar("bleAxNudX", bleNudgeXAxis);
+    prefs.putUChar("bleAxNudY", bleNudgeYAxis);
+    prefs.putUChar("bleAxPlg", blePlungerAxis);
 
     prefs.putBool("legacyDofSer", legacySerialDofEnabled);
 
@@ -342,6 +367,16 @@ void Config::updateConfigFromSerial() {
     accelerometerSoftLimitEnabled = blockRead();
     unsigned char softKnee = blockRead();  // read once; constrain() is a macro
     accelerometerSoftLimitKnee = constrain(softKnee, 1, 99);
+    bleXboxMode = blockRead();
+
+    usbNudgeXAxis = validAxis(blockRead(), USB_AXIS_COUNT, 0);
+    usbNudgeYAxis = validAxis(blockRead(), USB_AXIS_COUNT, 1);
+    usbPlungerAxis = validAxis(blockRead(), USB_AXIS_COUNT, 2);
+    usbVelocityXAxis = validAxis(blockRead(), USB_AXIS_COUNT, 3);
+    usbVelocityYAxis = validAxis(blockRead(), USB_AXIS_COUNT, 4);
+    bleNudgeXAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 0);
+    bleNudgeYAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 1);
+    blePlungerAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 3);
 
     if(blockRead() != 42) {
       done = 1;
@@ -461,6 +496,16 @@ void Config::sendConfig() {
 
     printComma(accelerometerSoftLimitEnabled);
     printComma(accelerometerSoftLimitKnee);
+    printComma(bleXboxMode);
+
+    printComma(usbNudgeXAxis);
+    printComma(usbNudgeYAxis);
+    printComma(usbPlungerAxis);
+    printComma(usbVelocityXAxis);
+    printComma(usbVelocityYAxis);
+    printComma(bleNudgeXAxis);
+    printComma(bleNudgeYAxis);
+    printComma(blePlungerAxis);
 
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();

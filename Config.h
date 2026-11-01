@@ -2,6 +2,9 @@
 #define CONFIG_H
 #include <Arduino.h>
 
+// Number of selectable gamepad axes (see usbNudgeXAxis / bleNudgeXAxis below)
+#define USB_AXIS_COUNT 5
+#define BLE_AXIS_COUNT 4
 
 class Config {
 
@@ -95,6 +98,24 @@ class Config {
     // True once the map/name came from the main config (prefs or config tool), not
     // the legacy BleController storage. Not persisted.
     bool bleMapStored = false;
+    // False = the combined keyboard + gamepad + DOF profile; true = emulate an
+    // Xbox Series X controller (gamepad only; rumble drives outputs 1 and 2).
+    // Only one profile is ever advertised, so this applies after a restart.
+    bool bleXboxMode = false;
+
+    // Which gamepad axis each nudge/plunger signal is reported on over USB:
+    // 0 = X, 1 = Y, 2 = Z, 3 = Rx, 4 = Ry (see MinimalGamepad::setAxis()).
+    // Each signal needs its own axis; the config tool enforces that.
+    unsigned char usbNudgeXAxis = 0;      // nudge left/right
+    unsigned char usbNudgeYAxis = 1;      // nudge up/down
+    unsigned char usbPlungerAxis = 2;
+    unsigned char usbVelocityXAxis = 3;   // only used when accelerometerVelocityEnabled
+    unsigned char usbVelocityYAxis = 4;
+    // Same for the Bluetooth Xbox profile:
+    // 0 = left stick X, 1 = left stick Y, 2 = right stick X, 3 = right stick Y.
+    unsigned char bleNudgeXAxis = 0;
+    unsigned char bleNudgeYAxis = 1;
+    unsigned char blePlungerAxis = 3;
 
     unsigned char done = 0;
     bool nightMode = false;

@@ -77,11 +77,10 @@ public:
     MinimalGamepad();
 
     void begin();
-    void xAxis(int16_t value);
-    void yAxis(int16_t value);
-    void rxAxis(int16_t value);
-    void ryAxis(int16_t value);
-    void zAxis(int16_t value);
+    // axis: 0 = X, 1 = Y, 2 = Z, 3 = Rx, 4 = Ry (the 16-bit axes)
+    void setAxis(uint8_t axis, int16_t value);
+    // Zero every axis without sending a report
+    void resetAxes();
     void press(uint8_t button);
     void release(uint8_t button);
     void write();

@@ -203,29 +203,24 @@ uint16_t MinimalGamepad::_onGetDescriptor(uint8_t* buffer) {
     return sizeof(_combinedReportDescriptor);
 }
 
-void MinimalGamepad::xAxis(int16_t value) {
-    _report.xAxis = value;
+void MinimalGamepad::setAxis(uint8_t axis, int16_t value) {
+    switch (axis) {
+        case 0: _report.xAxis = value; break;
+        case 1: _report.yAxis = value; break;
+        case 2: _report.zAxis = value; break;
+        case 3: _report.rxAxis = value; break;
+        case 4: _report.ryAxis = value; break;
+        default: return;
+    }
     write();
 }
 
-void MinimalGamepad::yAxis(int16_t value) {
-    _report.yAxis = value;
-    write();
-}
-
-void MinimalGamepad::rxAxis(int16_t value) {
-    _report.rxAxis = value;
-    write();
-}
-
-void MinimalGamepad::ryAxis(int16_t value) {
-    _report.ryAxis = value;
-    write();
-}
-
-void MinimalGamepad::zAxis(int16_t value) {
-    _report.zAxis = value;
-    write();
+void MinimalGamepad::resetAxes() {
+    _report.xAxis = 0;
+    _report.yAxis = 0;
+    _report.zAxis = 0;
+    _report.rxAxis = 0;
+    _report.ryAxis = 0;
 }
 
 void MinimalGamepad::press(uint8_t button) {

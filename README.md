@@ -171,9 +171,10 @@ Presence of each PCA9685 board and the accelerometer (and the address it answere
 - **Outputs**: 15 direct PWM outputs (8 LEDC + 7 MCPWM) + 48 PCA9685 channels = 63 total. Per-output type (none/noisy/light show/shared), max on-level, max on-time and PWM vs. on/off mode
 - **USB HID**: Gamepad (32 buttons, X/Y/Rx/Ry/Z axes at 16-bit, Rz 8-bit, 2 hat switches) + Keyboard + Consumer Control + a raw vendor HID channel for the config tool
 - **Plunger**: calibrated min/mid/max in mV, quick-release detection, optional launch-button press at the end positions
-- **Accelerometer**: X/Y position on the gamepad X/Y axes, with adjustable range, dead zone, orientation (board rotation in 5° steps, pins up, mounted on side), auto-centering, tilt buttons, and optional velocity output on Rx/Ry
+- **Accelerometer**: X/Y position on the gamepad X/Y axes by default, with adjustable range, dead zone, orientation (board rotation in 5° steps, pins up, mounted on side), auto-centering, tilt buttons, and optional velocity output on Rx/Ry by default. The USB axis for nudge left/right, nudge up/down, plunger and both velocity axes is chosen on the config tool's Inputs page (X, Y, Z, Rx or Ry; defaults X, Y, Z, Rx, Ry)
 - **Input profiles**: up to 4 keyboard-mapping profiles, switched by holding a configurable button, with output pulses/light flash to confirm the active profile
-- **BLE HID**: Xbox-style gamepad + keyboard + DOF output report, native NimBLE; device name and button map are configurable
+- **BLE HID**: Xbox-style gamepad + keyboard + DOF output report, native NimBLE; device name and button map are configurable. Both BLE profiles use the Xbox stick layout (left X/Y = X/Y, right X/Y = Z/Rz, triggers on Rx/Ry), and the config tool's Game Controller page picks which stick axis carries nudge left/right, nudge up/down and the plunger (defaults left X, left Y, right Y). Hosts paired before this layout change need to be re-paired
+- **BLE Xbox mode**: optional profile (config tool toggle, applies after restart) that advertises as a stock Xbox Series X controller (Microsoft VID `0x045E`, PID `0x0B13`) instead of the keyboard + gamepad + DOF profile. Gamepad only (no keyboard, no BLE DOF); the host's rumble motors switch outputs 1 (strong) and 2 (weak) fully on/off; the plunger defaults to the right stick Y axis
 - **Light Show**: attract mode with random animations, night mode
 - **Button Lock**: a configurable button (hold or toggle, like night mode) disables all buttons except an allowed set (default 1, 2, 3, 4, 9, 23, 24) to prevent accidental bumps; state shows in the config tool's Inputs page
 - **IR Transmitter**: NEC, Samsung, Sony protocols via RMT peripheral
@@ -183,7 +184,7 @@ Presence of each PCA9685 board and the accelerometer (and the address it answere
 
 ## Firmware Version
 
-V2 reports version `3.1.0` to the config tool (V1 reported `2.2.0`).
+V2 reports version `3.2.0` to the config tool (V1 reported `2.2.0`).
 
 ## Migration Notes
 

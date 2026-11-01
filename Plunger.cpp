@@ -29,7 +29,7 @@ void Plunger::resetPlunger() {
 
 void Plunger::plungerRead() {
   if (config.enablePlunger == false) {
-    updateGamepadZAxis(0);
+    updateGamepadAxis(0);
     return;
   }
 
@@ -92,14 +92,14 @@ void Plunger::plungerRead() {
       if (adjustedValue > 0 && !plungerReleased) {
         currentPlungerMax = currentDelayedValue;
       }
-      updateGamepadZAxis(currentDelayedValue, true);
+      updateGamepadAxis(currentDelayedValue, true);
     } else {
       currentPlungerMax = 0;
       plungerReleased = false;
       if (config.disablePlungerWhenNotInUse == 1) {
-        updateGamepadZAxis(0);
+        updateGamepadAxis(0);
       } else {
-        updateGamepadZAxis(currentDelayedValue, true);
+        updateGamepadAxis(currentDelayedValue, true);
       }
     }
     priorValue = currentDelayedValue;
@@ -150,8 +150,8 @@ void Plunger::updateButtonState(uint8_t& buttonState, bool condition, bool press
   }
 }
 
-void Plunger::updateGamepadZAxis(int16_t value, bool forceUpdate) {
-  Gamepad1.zAxis(value);
+void Plunger::updateGamepadAxis(int16_t value, bool forceUpdate) {
+  Gamepad1.setAxis(config.usbPlungerAxis, value);
   if (forceUpdate) {
     config.updateUSB = true;
   }
