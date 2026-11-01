@@ -198,14 +198,23 @@ void Accelerometer::zeroOutputs() {
   zeroVelocityOutput();
 }
 
+// Make the next read resend every axis. Used after the axis assignment changes,
+// when the USB report has been zeroed and the "prior" values no longer match it.
+void Accelerometer::refreshAxes() {
+  priorXValue = static_cast<int16_t>(xValue + 1);
+  priorYValue = static_cast<int16_t>(yValue + 1);
+  priorRxValue = 0;
+  priorRyValue = 0;
+}
+
 // Clear the velocity integrator and zero the Rx/Ry axes if they aren't already
 void Accelerometer::zeroVelocityOutput() {
   // also clears the time baseline, so the gap isn't integrated when reads resume
   resetVelocity();
 
   if (priorRxValue != 0 || priorRyValue != 0) {
-    Gamepad1.rxAxis(0);
-    Gamepad1.ryAxis(0);
+    Gamepad1.setAxis(config.usbVelocityXAxis, 0);
+    Gamepad1.setAxis(config.usbVelocityYAxis, 0);
     priorRxValue = 0;
     priorRyValue = 0;
     config.updateUSB = true;
@@ -312,7 +321,7 @@ void Accelerometer::processTiltButton() {
 
 void Accelerometer::updateXAxis() {
   if (priorXValue != xValue) {
-    Gamepad1.xAxis(clampToInt16(static_cast<float>(xValue) * xAxisScale));
+    Gamepad1.setAxis(config.usbNudgeXAxis, clampToInt16(static_cast<float>(xValue) * xAxisScale));
     priorXValue = xValue;
     config.updateUSB = true;
   }
@@ -320,7 +329,7 @@ void Accelerometer::updateXAxis() {
 
 void Accelerometer::updateYAxis() {
   if (priorYValue != yValue) {
-    Gamepad1.yAxis(clampToInt16(static_cast<float>(yValue) * yAxisScale));
+    Gamepad1.setAxis(config.usbNudgeYAxis, clampToInt16(static_cast<float>(yValue) * yAxisScale));
     priorYValue = yValue;
     config.updateUSB = true;
   }
@@ -394,7 +403,7 @@ int16_t Accelerometer::getScaledVelocity(float velocity) const {
 void Accelerometer::updateRxAxis() {
   int16_t scaled = getScaledVelocity(velocityX);
   if (priorRxValue != scaled) {
-    Gamepad1.rxAxis(scaled);
+    Gamepad1.setAxis(config.usbVelocityXAxis, scaled);
     priorRxValue = scaled;
     config.updateUSB = true;
   }
@@ -403,7 +412,7 @@ void Accelerometer::updateRxAxis() {
 void Accelerometer::updateRyAxis() {
   int16_t scaled = getScaledVelocity(velocityY);
   if (priorRyValue != scaled) {
-    Gamepad1.ryAxis(scaled);
+    Gamepad1.setAxis(config.usbVelocityYAxis, scaled);
     priorRyValue = scaled;
     config.updateUSB = true;
   }

@@ -75,17 +75,20 @@ private:
         uint8_t  dpad    = DPAD_CENTERED;
         uint16_t lx      = 32768;
         uint16_t ly      = 32768;
+        uint16_t rx      = 32768;
+        uint16_t ry      = 32768;
         uint16_t lt      = 0;
         uint16_t rt      = 0;
-        uint16_t z       = 32768;
     };
+
+    // Stick axis indices, as used by Config's ble*Axis settings
+    static const int NUM_STICK_AXES = 4;  // left X, left Y, right X, right Y
 
     void sendKeyboard(uint8_t modifiers, const uint8_t keys[6]);
     void releaseAllKeys();
     void sendGamepad(uint16_t buttons, uint8_t dpad,
-                     uint16_t lx, uint16_t ly,
-                     uint16_t lt, uint16_t rt,
-                     uint16_t z);
+                     const uint16_t sticks[NUM_STICK_AXES],
+                     uint16_t lt, uint16_t rt);
     bool getOutputPacket(uint8_t* buf);
     void applyOutputPackets();
 

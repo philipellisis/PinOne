@@ -23,11 +23,13 @@ static const uint8_t hidReportMap[] = {
     0x75, 0x04, 0x95, 0x01, 0x81, 0x42,
     0x75, 0x04, 0x95, 0x01, 0x15, 0x00, 0x25, 0x00,
     0x35, 0x00, 0x45, 0x00, 0x65, 0x00, 0x81, 0x03,
-    // 5 axes: X/Y nudge, Rx/Ry triggers, Z plunger (matches the USB gamepad)
+    // 6 axes, laid out like the Xbox profile: left stick X/Y (X, Y), right stick
+    // X/Y (Z, Rz), then the Rx/Ry triggers. Nudge and plunger are assigned to
+    // the stick axes by the config's ble*Axis settings.
     0x05, 0x01, 0x09, 0x01, 0xA1, 0x00,
-    0x09, 0x30, 0x09, 0x31, 0x09, 0x33, 0x09, 0x34, 0x09, 0x32,
+    0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35, 0x09, 0x33, 0x09, 0x34,
     0x15, 0x00, 0x27, 0xFF, 0xFF, 0x00, 0x00,
-    0x75, 0x10, 0x95, 0x05, 0x81, 0x02,
+    0x75, 0x10, 0x95, 0x06, 0x81, 0x02,
     0xC0,
     // DOF output feature report (Report ID 3)
     0x06, 0x00, 0xFF, 0x09, 0x01,
@@ -220,7 +222,8 @@ void BleController::update() {
 
     if (modeChanged) {
         releaseAllKeys();
-        sendGamepad(0, DPAD_CENTERED, 32768, 32768, 0, 0, 32768);
+        static const uint16_t centered[NUM_STICK_AXES] = {32768, 32768, 32768, 32768};
+        sendGamepad(0, DPAD_CENTERED, centered, 0, 0);
         _prevKbdMod = 0;
         memset(_prevKbdKeys, 0, sizeof(_prevKbdKeys));
         _prevGpButtons = 0;
@@ -333,13 +336,17 @@ void BleController::processGamepadMode() {
         accelX != _prevLX || accelY != _prevLY || plungerVal != _prevPlunger ||
         curLT != _prevLT || curRT != _prevRT) {
 
+        // Each signal goes on the stick axis chosen in the config; the rest
+        // stay centered
+        uint16_t sticks[NUM_STICK_AXES] = {32768, 32768, 32768, 32768};
+        sticks[config.bleNudgeXAxis % NUM_STICK_AXES]  = (uint16_t)((int32_t)accelX + 32768);
+        sticks[config.bleNudgeYAxis % NUM_STICK_AXES]  = (uint16_t)((int32_t)accelY + 32768);
+        sticks[config.blePlungerAxis % NUM_STICK_AXES] = (uint16_t)((int32_t)plungerVal + 32768);
+
         sendGamepad(
-            curButtons, dpad,
-            (uint16_t)((int32_t)accelX + 32768),
-            (uint16_t)((int32_t)accelY + 32768),
+            curButtons, dpad, sticks,
             (uint16_t)(curLT * 64),
-            (uint16_t)(curRT * 64),
-            (uint16_t)((int32_t)plungerVal + 32768)
+            (uint16_t)(curRT * 64)
         );
         _prevGpButtons = curButtons;
         _prevDpad      = dpad;
@@ -391,7 +398,11 @@ void BleController::applyConfig() {
         _buttonMap[i] = config.bleButtonMap[i];
     }
     releaseAllKeys();
-    sendGamepad(0, DPAD_CENTERED, 32768, 32768, 0, 0, 32768);
+    static const uint16_t centered[NUM_STICK_AXES] = {32768, 32768, 32768, 32768};
+    sendGamepad(0, DPAD_CENTERED, centered, 0, 0);
+    // The axis assignment may have changed, so make the next update resend every
+    // axis (INT16_MIN can't equal a real reading)
+    _prevLX = _prevLY = _prevPlunger = INT16_MIN;
 }
 
 // =====================================================================
@@ -423,16 +434,15 @@ void BleController::releaseAllKeys() {
 }
 
 void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
-                                 uint16_t lx, uint16_t ly,
-                                 uint16_t lt, uint16_t rt,
-                                 uint16_t z) {
+                                 const uint16_t sticks[NUM_STICK_AXES],
+                                 uint16_t lt, uint16_t rt) {
     if (!_connected || !_gpReport) return;
     if (_xboxMode) {
-        // Same axes as the combined profile: accelerometer on the left stick,
-        // plunger on Rz (right stick Y), triggers 0-1023
-        _xbState.lx      = lx;
-        _xbState.ly      = ly;
-        _xbState.ry      = z;
+        // Same sticks as the combined profile, triggers 0-1023
+        _xbState.lx      = sticks[0];
+        _xbState.ly      = sticks[1];
+        _xbState.rx      = sticks[2];
+        _xbState.ry      = sticks[3];
         _xbState.brake   = lt >> 6;
         _xbState.accel   = rt >> 6;
         _xbState.dpad    = dpad;
@@ -443,11 +453,12 @@ void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
     }
     _gpState.buttons = buttons;
     _gpState.dpad    = dpad;
-    _gpState.lx      = lx;
-    _gpState.ly      = ly;
+    _gpState.lx      = sticks[0];
+    _gpState.ly      = sticks[1];
+    _gpState.rx      = sticks[2];
+    _gpState.ry      = sticks[3];
     _gpState.lt      = lt;
     _gpState.rt      = rt;
-    _gpState.z       = z;
     _gpReport->setValue((uint8_t*)&_gpState, sizeof(_gpState));
     _gpReport->notify((uint8_t*)&_gpState, sizeof(_gpState));
 }

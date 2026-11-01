@@ -13,6 +13,8 @@ class Plunger {
     void sendPlungerState();
     void resetPlunger();
     int16_t getAdjustedValue() const { return adjustedValue; }
+    // Make the next read resend the plunger axis (after the axis assignment changes)
+    void refreshAxis() { priorValue = INT16_MIN; }
 
   private:
     bool plungerReleased = false;
@@ -31,7 +33,7 @@ class Plunger {
     int16_t getDelayedPlungerValue(int16_t sensorValue, uint32_t currentTime);
     int16_t currentPlungerMax = 0;
     void updateButtonState(uint8_t& buttonState, bool condition, bool pressed);
-    void updateGamepadZAxis(int16_t value, bool forceUpdate = false);
+    void updateGamepadAxis(int16_t value, bool forceUpdate = false);
 
 };
 

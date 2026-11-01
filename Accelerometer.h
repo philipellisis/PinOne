@@ -33,6 +33,7 @@ class Accelerometer {
     void resetVelocity();
     void zeroOutputs();
     void zeroVelocityOutput();
+    void refreshAxes();
 
   private:
     int16_t xValueOffset = 0;

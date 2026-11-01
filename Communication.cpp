@@ -122,6 +122,12 @@ void Communication::sendAdmin() {
         if (config.accelerometerEprom > 0) {
           accel.init();
         }
+        // The axis assignments may have changed: clear the USB axes so none is
+        // left holding a stale value, then have each input resend its own
+        Gamepad1.resetAxes();
+        plunger.refreshAxis();
+        accel.refreshAxes();
+        config.updateUSB = true;
       }
       admin = 0;
       break;
