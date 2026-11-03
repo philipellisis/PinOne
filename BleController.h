@@ -49,6 +49,9 @@ public:
     // Called from Communication.cpp for config tool
     // Re-reads the button map from config after the config tool saves it
     void applyConfig();
+    // Forgets every paired host and drops the current connection, so a host with a
+    // stale pairing can start over
+    void clearBonds();
 
 private:
     // BLE HID report structures

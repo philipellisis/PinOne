@@ -6,6 +6,9 @@
 #define USB_AXIS_COUNT 5
 #define BLE_AXIS_COUNT 4
 
+// Reported to the config tool and over Bluetooth
+#define FIRMWARE_VERSION "3.2.1"
+
 class Config {
 
   public:

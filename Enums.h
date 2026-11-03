@@ -15,6 +15,7 @@ enum admin_type {
     VERSION = 11,
     RESET = 12,
     SET_BLE_MAP = 13,
+    CLEAR_BLE_BONDS = 14,
 };
 
   // 1 means an output has been received and waiting to reset timer
