@@ -76,14 +76,17 @@ public:
 };
 
 class BleController::ServerCallbacks : public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer* srv, NimBLEConnInfo& info) override {
+    void onConnect(NimBLEServer*, NimBLEConnInfo& info) override {
         NimBLEDevice::startSecurity(info.getConnHandle());
-        srv->updateConnParams(info.getConnHandle(), 6, 7, 0, 600);
     }
 
     void onAuthenticationComplete(NimBLEConnInfo& info) override {
         if (info.isEncrypted()) {
             BleController::_connected = true;
+            // Faster connection timing for low input latency. Requested once pairing
+            // is done rather than during it, so it can't interfere with a host's
+            // pairing and service discovery.
+            NimBLEDevice::getServer()->updateConnParams(info.getConnHandle(), 6, 7, 0, 600);
         } else {
             NimBLEDevice::getServer()->disconnect(info.getConnHandle());
         }
@@ -189,6 +192,24 @@ void BleController::begin() {
         _gpReport = _hidDevice->getInputReport(BLE_REPORT_ID_GAMEPAD);
         _outputReport = _hidDevice->getFeatureReport(BLE_REPORT_ID_OUTPUT);
     }
+    // Extra device information strings, as stock controllers expose. The Meta Quest
+    // did not register the controller (it never read the PnP ID, so saw VID/PID 0)
+    // until these were added.
+    NimBLEService* dis = _hidDevice->getDeviceInfoService();
+    char serial[17];
+    snprintf(serial, sizeof(serial), "%012llX", (unsigned long long)ESP.getEfuseMac());
+    const struct { uint16_t uuid; const char* value; } disStrings[] = {
+        {0x2A24, _deviceName},        // model number
+        {0x2A25, serial},             // serial number
+        {0x2A27, "1.0"},              // hardware revision
+        {0x2A26, FIRMWARE_VERSION},   // firmware revision
+        {0x2A28, FIRMWARE_VERSION},   // software revision
+    };
+    for (const auto& s : disStrings) {
+        NimBLECharacteristic* chr = dis->createCharacteristic(NimBLEUUID(s.uuid), NIMBLE_PROPERTY::READ);
+        if (chr) chr->setValue(std::string(s.value));
+    }
+
     static OutputCallbacks outCb(this);
     _outputReport->setCallbacks(&outCb);
 
@@ -392,6 +413,15 @@ void BleController::applyOutputPackets() {
 // =====================================================================
 // Config Tool Interface
 // =====================================================================
+
+void BleController::clearBonds() {
+    NimBLEDevice::deleteAllBonds();
+    if (_server) {
+        for (uint16_t handle : _server->getPeerDevices()) {
+            _server->disconnect(handle);
+        }
+    }
+}
 
 void BleController::applyConfig() {
     for (int i = 0; i < NUM_RAW_BUTTONS; i++) {
