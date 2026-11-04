@@ -15,6 +15,16 @@
 // from a silently-dropped BLE notification (see BleController::update()).
 #define BLE_HEARTBEAT_INTERVAL_MS 25
 
+// Minimum spacing of reports that only carry axis changes. The accelerometer
+// changes on nearly every loop pass, so unpaced it floods the BLE stack. Button
+// changes aren't held to this.
+#define BLE_AXIS_REPORT_INTERVAL_MS 8
+
+// NimBLE buffers (out of 12) that input reports must leave free. The stack answers
+// the host's GATT requests from the same pool, and with none free it fails them
+// with "insufficient resources" (see hasBufferRoom() in BleController.cpp).
+#define BLE_MIN_FREE_MBUFS 4
+
 // Gamepad button bitmasks (Xbox layout)
 #define GP_BTN_A        0x0001u
 #define GP_BTN_B        0x0002u
@@ -87,9 +97,10 @@ private:
     // Stick axis indices, as used by Config's ble*Axis settings
     static const int NUM_STICK_AXES = 4;  // left X, left Y, right X, right Y
 
-    void sendKeyboard(uint8_t modifiers, const uint8_t keys[6]);
+    // Both return false if the report wasn't sent, so the caller can retry it
+    bool sendKeyboard(uint8_t modifiers, const uint8_t keys[6]);
     void releaseAllKeys();
-    void sendGamepad(uint16_t buttons, uint8_t dpad,
+    bool sendGamepad(uint16_t buttons, uint8_t dpad,
                      const uint16_t sticks[NUM_STICK_AXES],
                      uint16_t lt, uint16_t rt);
     bool getOutputPacket(uint8_t* buf);
@@ -113,8 +124,12 @@ private:
     static const uint16_t SLOT_TO_BITMASK[9];
 
     static bool _connected;
+    // Host has enabled notifications on the input report (restored from the bond
+    // on reconnect). notify() with a value doesn't check this itself.
+    static volatile bool _kbSubscribed;
+    static volatile bool _gpSubscribed;
 
-    NimBLEServer*         _server        = nullptr;
+    NimBLEServer*        _server        = nullptr;
     NimBLEHIDDevice*      _hidDevice     = nullptr;
     NimBLECharacteristic* _kbReport      = nullptr;
     NimBLECharacteristic* _gpReport      = nullptr;
@@ -150,12 +165,16 @@ private:
 
     // Heartbeat timing
     uint32_t _lastUpdate = 0;
+    // When the last gamepad report went out, to pace axis-only reports
+    uint32_t _lastGpSend = 0;
 
     // Device name
     char _deviceName[33] = "PinOne";
 
     class ServerCallbacks;
     class OutputCallbacks;
+    class InputCallbacks;
     friend class ServerCallbacks;
     friend class OutputCallbacks;
+    friend class InputCallbacks;
 };

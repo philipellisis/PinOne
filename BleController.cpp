@@ -1,6 +1,7 @@
 #include "BleController.h"
 #include <Preferences.h>
 #include "Globals.h"
+#include "nimble/porting/nimble/include/os/os_mbuf.h"
 
 // BLE HID report descriptor — keyboard (ID 1) + gamepad (ID 2) + DOF output (ID 3)
 static const uint8_t hidReportMap[] = {
@@ -39,6 +40,16 @@ static const uint8_t hidReportMap[] = {
 };
 
 bool BleController::_connected = false;
+volatile bool BleController::_kbSubscribed = false;
+volatile bool BleController::_gpSubscribed = false;
+
+// Input reports and the stack's replies to the host share one small buffer pool.
+// If reports drain it, the host's GATT requests fail with "insufficient resources"
+// or go unanswered: on a Meta Quest that lost the input reports during discovery
+// and the report map read, so it created no controller.
+static bool hasBufferRoom() {
+    return os_msys_num_free() >= BLE_MIN_FREE_MBUFS;
+}
 
 const uint16_t BleController::SLOT_TO_BITMASK[9] = {
     0, GP_BTN_A, GP_BTN_B, GP_BTN_X, GP_BTN_Y,
@@ -75,6 +86,16 @@ public:
     }
 };
 
+class BleController::InputCallbacks : public NimBLECharacteristicCallbacks {
+    volatile bool* _subscribed;
+public:
+    InputCallbacks(volatile bool* subscribed) : _subscribed(subscribed) {}
+
+    void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo&, uint16_t subValue) override {
+        *_subscribed = (subValue & 0x01) != 0;
+    }
+};
+
 class BleController::ServerCallbacks : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer*, NimBLEConnInfo& info) override {
         NimBLEDevice::startSecurity(info.getConnHandle());
@@ -94,6 +115,8 @@ class BleController::ServerCallbacks : public NimBLEServerCallbacks {
 
     void onDisconnect(NimBLEServer* srv, NimBLEConnInfo& info, int reason) override {
         BleController::_connected = false;
+        BleController::_kbSubscribed = false;
+        BleController::_gpSubscribed = false;
         NimBLEDevice::startAdvertising();
     }
 };
@@ -192,9 +215,14 @@ void BleController::begin() {
         _gpReport = _hidDevice->getInputReport(BLE_REPORT_ID_GAMEPAD);
         _outputReport = _hidDevice->getFeatureReport(BLE_REPORT_ID_OUTPUT);
     }
-    // Extra device information strings, as stock controllers expose. The Meta Quest
-    // did not register the controller (it never read the PnP ID, so saw VID/PID 0)
-    // until these were added.
+    static InputCallbacks gpInCb(&_gpSubscribed);
+    _gpReport->setCallbacks(&gpInCb);
+    if (_kbReport) {
+        static InputCallbacks kbInCb(&_kbSubscribed);
+        _kbReport->setCallbacks(&kbInCb);
+    }
+
+    // Extra device information strings, as stock controllers expose
     NimBLEService* dis = _hidDevice->getDeviceInfoService();
     char serial[17];
     snprintf(serial, sizeof(serial), "%012llX", (unsigned long long)ESP.getEfuseMac());
@@ -276,7 +304,7 @@ void BleController::update() {
     // report (no-arg notify() re-sends the characteristic's stored value) so
     // a dropped packet self-corrects quickly instead of waiting indefinitely.
     uint32_t now = millis();
-    if (now - _lastUpdate >= BLE_HEARTBEAT_INTERVAL_MS) {
+    if (now - _lastUpdate >= BLE_HEARTBEAT_INTERVAL_MS && hasBufferRoom()) {
         _lastUpdate = now;
         if (kbdMode == 1 || kbdMode == 2) {
             _kbReport->notify();
@@ -301,8 +329,8 @@ void BleController::processKeyboardMode() {
         }
     }
 
-    if (curMod != _prevKbdMod || memcmp(curKeys, _prevKbdKeys, 6) != 0) {
-        sendKeyboard(curMod, curKeys);
+    if ((curMod != _prevKbdMod || memcmp(curKeys, _prevKbdKeys, 6) != 0) &&
+        sendKeyboard(curMod, curKeys)) {
         _prevKbdMod = curMod;
         memcpy(_prevKbdKeys, curKeys, 6);
     }
@@ -353,9 +381,12 @@ void BleController::processGamepadMode() {
     int16_t accelX = accel.getXAxis();
     int16_t accelY = accel.getYAxis();
 
-    if (curButtons != _prevGpButtons || dpad != _prevDpad ||
-        accelX != _prevLX || accelY != _prevLY || plungerVal != _prevPlunger ||
-        curLT != _prevLT || curRT != _prevRT) {
+    bool buttonsChanged = curButtons != _prevGpButtons || dpad != _prevDpad ||
+                          curLT != _prevLT || curRT != _prevRT;
+    bool axesChanged = accelX != _prevLX || accelY != _prevLY || plungerVal != _prevPlunger;
+    uint32_t now = millis();
+
+    if (buttonsChanged || (axesChanged && now - _lastGpSend >= BLE_AXIS_REPORT_INTERVAL_MS)) {
 
         // Each signal goes on the stick axis chosen in the config; the rest
         // stay centered
@@ -364,11 +395,14 @@ void BleController::processGamepadMode() {
         sticks[config.bleNudgeYAxis % NUM_STICK_AXES]  = (uint16_t)((int32_t)accelY + 32768);
         sticks[config.blePlungerAxis % NUM_STICK_AXES] = (uint16_t)((int32_t)plungerVal + 32768);
 
-        sendGamepad(
+        // Not sent: leave the previous state alone so the next pass tries again
+        // rather than losing a button edge
+        if (!sendGamepad(
             curButtons, dpad, sticks,
             (uint16_t)(curLT * 64),
             (uint16_t)(curRT * 64)
-        );
+        )) return;
+        _lastGpSend    = now;
         _prevGpButtons = curButtons;
         _prevDpad      = dpad;
         _prevLX        = accelX;
@@ -439,8 +473,8 @@ void BleController::applyConfig() {
 // BLE HID Send Methods
 // =====================================================================
 
-void BleController::sendKeyboard(uint8_t modifiers, const uint8_t keys[6]) {
-    if (!_connected || !_kbReport) return;
+bool BleController::sendKeyboard(uint8_t modifiers, const uint8_t keys[6]) {
+    if (!_connected || !_kbSubscribed || !_kbReport || !hasBufferRoom()) return false;
     _kbState.modifiers = modifiers;
     memcpy(_kbState.keys, keys, 6);
     _kbReport->setValue((uint8_t*)&_kbState, sizeof(_kbState));
@@ -453,20 +487,20 @@ void BleController::sendKeyboard(uint8_t modifiers, const uint8_t keys[6]) {
     // sent. Passing the value builds and transmits a discrete packet for
     // this exact state immediately, so back-to-back edges can't clobber
     // each other.
-    _kbReport->notify((uint8_t*)&_kbState, sizeof(_kbState));
+    return _kbReport->notify((uint8_t*)&_kbState, sizeof(_kbState));
 }
 
 void BleController::releaseAllKeys() {
     if (!_kbReport) return;
     _kbState = KeyReport{};
     _kbReport->setValue((uint8_t*)&_kbState, sizeof(_kbState));
-    if (_connected) _kbReport->notify((uint8_t*)&_kbState, sizeof(_kbState));
+    if (_connected && _kbSubscribed) _kbReport->notify((uint8_t*)&_kbState, sizeof(_kbState));
 }
 
-void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
+bool BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
                                  const uint16_t sticks[NUM_STICK_AXES],
                                  uint16_t lt, uint16_t rt) {
-    if (!_connected || !_gpReport) return;
+    if (!_connected || !_gpSubscribed || !_gpReport || !hasBufferRoom()) return false;
     if (_xboxMode) {
         // Same sticks as the combined profile, triggers 0-1023
         _xbState.lx      = sticks[0];
@@ -478,8 +512,7 @@ void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
         _xbState.dpad    = dpad;
         _xbState.buttons = buttons;
         _gpReport->setValue((uint8_t*)&_xbState, sizeof(_xbState));
-        _gpReport->notify((uint8_t*)&_xbState, sizeof(_xbState));
-        return;
+        return _gpReport->notify((uint8_t*)&_xbState, sizeof(_xbState));
     }
     _gpState.buttons = buttons;
     _gpState.dpad    = dpad;
@@ -490,7 +523,7 @@ void BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
     _gpState.lt      = lt;
     _gpState.rt      = rt;
     _gpReport->setValue((uint8_t*)&_gpState, sizeof(_gpState));
-    _gpReport->notify((uint8_t*)&_gpState, sizeof(_gpState));
+    return _gpReport->notify((uint8_t*)&_gpState, sizeof(_gpState));
 }
 
 bool BleController::getOutputPacket(uint8_t* buf) {
