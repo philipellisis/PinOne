@@ -15,38 +15,45 @@ Communication::Communication() {
 
 void Communication::communicate() {
   outputs.checkResetOutputs();
-  for (uint8_t i = 0; i < 9; i++) {
-    if (HidConfig.available()) {
-      incomingData[dataLocation] = HidConfig.read();
-      if ((dataLocation == 0 && incomingData[0] != firstNumber) || (dataLocation == 1 && (incomingData[1] < bankOffset))) {
-        dataLocation = 0;
-      } else {
-        // wait until we have filled 9 slots of data, then do what needs to be done
-        if (dataLocation == 8) {
-          if (incomingData[1] == adminNumber) {
-            config.lightShowState = LS_DISABLED;
-            admin = incomingData[2];
-          } else if (incomingData[1] == connectionNumber) {
-            ConfigOut.print(connectedString);
-            ConfigOut.flush();
-          } else if (incomingData[1] == outputSingleNumber) {
-            outputs.updateOutput(incomingData[2], incomingData[3]);
-          } else {
-            //normal operation
-            if (config.lightShowState != OUTPUT_RECEIVED) {
-              lightShow.setLightsOff();
-            }
-            config.lightShowState = OUTPUT_RECEIVED_RESET_TIMER;
-            updateOutputs();
-
-          }
-          dataLocation = 0;
-        } else {
-          dataLocation++;
+  // Read everything that has arrived (up to a limit so the light show and the
+  // rest of this task keep running). The old limit of 9 bytes per pass took
+  // about 7 ms for each 63 byte HID report, so a burst from the PC overflowed
+  // the receive queue and bytes were lost in the middle of reports.
+  for (uint16_t n = 0; n < MAX_BYTES_PER_PASS && HidConfig.available(); n++) {
+    incomingData[dataLocation] = HidConfig.read();
+    if (dataLocation == 0 && incomingData[0] != firstNumber) {
+      continue; // not the start of a packet
+    }
+    if (dataLocation == 1 && !validSecondByte(incomingData[1])) {
+      // Not a packet after all. The byte may itself be the start of the real
+      // packet (the reports are padded with zeros), so do not throw it away.
+      dataLocation = (incomingData[1] == firstNumber) ? 1 : 0;
+      continue;
+    }
+    // wait until we have filled 9 slots of data, then do what needs to be done
+    if (dataLocation == 8) {
+      uint8_t kind = incomingData[1];
+      if (kind == adminNumber) {
+        config.lightShowState = LS_DISABLED;
+        admin = incomingData[2];
+      } else if (kind == connectionNumber) {
+        ConfigOut.print(connectedString);
+        ConfigOut.flush();
+      } else if (kind == outputSingleNumber) {
+        if (incomingData[2] < 63) {
+          outputs.updateOutput(incomingData[2], incomingData[3]);
         }
+      } else if (kind >= bankOffset && kind < bankOffset + 9) {
+        //normal operation
+        if (config.lightShowState != OUTPUT_RECEIVED) {
+          lightShow.setLightsOff();
+        }
+        config.lightShowState = OUTPUT_RECEIVED_RESET_TIMER;
+        updateOutputs();
       }
+      dataLocation = 0;
     } else {
-      break;
+      dataLocation++;
     }
   }
   if (config.legacySerialDofEnabled) {
@@ -56,13 +63,17 @@ void Communication::communicate() {
 }
 
 void Communication::communicateLegacySerial() {
-  for (uint8_t i = 0; i < 9; i++) {
+  for (uint8_t i = 0; i < 64; i++) {
     if (!ComSerial.available()) break;
     legacyIncomingData[legacyDataLocation] = ComSerial.read();
-    if ((legacyDataLocation == 0 && legacyIncomingData[0] != firstNumber) ||
-        (legacyDataLocation == 1 && legacyIncomingData[1] < bankOffset)) {
-      legacyDataLocation = 0;
-    } else if (legacyDataLocation == 8) {
+    if (legacyDataLocation == 0 && legacyIncomingData[0] != firstNumber) {
+      continue;
+    }
+    if (legacyDataLocation == 1 && !validSecondByte(legacyIncomingData[1])) {
+      legacyDataLocation = (legacyIncomingData[1] == firstNumber) ? 1 : 0;
+      continue;
+    }
+    if (legacyDataLocation == 8) {
       if (legacyIncomingData[1] == connectionNumber) {
         ComSerial.print(connectedString);
       } else if (legacyIncomingData[1] >= bankOffset && legacyIncomingData[1] < bankOffset + 9) {
@@ -193,12 +204,19 @@ void Communication::updateOutputs() {
 }
 
 void Communication::updateOutputsFromPacket(uint8_t* packet) {
+  if (packet[1] < bankOffset || packet[1] >= bankOffset + 9) return;
   uint8_t baseIndex = (packet[1] - bankOffset) * 7;
   for (uint8_t i = 2; i < 9; i++) {
     uint8_t outputIndex = baseIndex + i - 2;
-    if (previousDOFValues[outputIndex] != packet[i]) {
-      outputs.updateOutput(outputIndex, packet[i]);
-      previousDOFValues[outputIndex] = packet[i];
-    }
+    if (outputIndex >= 63) break;
+    // skips values DOF already asked for, but never when something else (light
+    // show, button, max on time) changed the output since
+    outputs.updateOutputFromDof(outputIndex, packet[i]);
   }
+}
+
+// The second byte of a packet is a bank (200-208) or one of the command numbers.
+bool Communication::validSecondByte(uint8_t b) {
+  return (b >= bankOffset && b < bankOffset + 9) || b == adminNumber || b == connectionNumber ||
+         b == outputSingleNumber || b == outputButtonNumber;
 }

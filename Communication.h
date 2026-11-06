@@ -40,7 +40,8 @@ class Communication {
     uint8_t legacyDataLocation = 0;
     void communicateLegacySerial();
 
-    uint8_t previousDOFValues[63] = {0};
+    static const uint16_t MAX_BYTES_PER_PASS = 256;
+    bool validSecondByte(uint8_t b);
 };
 
 #endif

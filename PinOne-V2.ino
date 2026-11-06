@@ -70,6 +70,14 @@ void loop() {
     config.buttonPressed = false;
   }
 
+  // nothing may stay pressed in the reports once every physical button is up
+  buttons.reconcile();
+
+  // retry a report that failed to send and refresh the current state regularly
+  Gamepad1.service();
+  BootKeyboard.service();
+  SingleConsumer.service();
+
   // Update BLE controller (reads directly from globals, no SPI needed)
   if (config.bluetoothEnable) {
     bleController.update();

@@ -241,6 +241,48 @@ void Buttons::sendActualButtonPress(unsigned char buttonOffset, bool currentButt
   config.processedButtonState[config.buttonRemap[buttonOffset] -1] = currentButtonState;
 }
 
+// The gamepad / keyboard reports are built from press and release events. Each release
+// has to find the same button the press set (the remap, the shift button and profile
+// changes all move it), and a release that goes wrong used to leave the bit set in the
+// report for good, while the config tool, which shows the real button state, saw nothing
+// pressed. Once every physical button has been up for a moment the reports are cleared.
+void Buttons::reconcile()
+{
+  for (uint8_t i = 0; i < 32; i++)
+  {
+    if (config.lastButtonState[i])
+    {
+      idleSince = 0;
+      return;
+    }
+  }
+  unsigned long now = millis();
+  if (idleSince == 0)
+  {
+    idleSince = now;
+    return;
+  }
+  if (now - idleSince < 100)
+  {
+    return; // a release may still be on its way
+  }
+  if (numberButtonsPressed != 0)
+  {
+    numberButtonsPressed = 0;
+  }
+  bool fixed = Gamepad1.clearButtons();
+  fixed |= BootKeyboard.releaseAll();
+  fixed |= SingleConsumer.releaseAll();
+  for (uint8_t i = 0; i < 32; i++)
+  {
+    config.processedButtonState[i] = 0;
+  }
+  if (fixed)
+  {
+    config.updateUSB = true;
+  }
+}
+
 void Buttons::sendButtonState()
 {
   ConfigOut.print(F("B,"));
