@@ -83,7 +83,12 @@ public:
     void resetAxes();
     void press(uint8_t button);
     void release(uint8_t button);
-    void write();
+    bool write();
+    // Release every button in the report and send it. Returns true when a button was held.
+    bool clearButtons();
+    // Call every pass: resends the report when the last send failed and refreshes it
+    // now and then, so the host never keeps showing a button that is no longer pressed.
+    void service();
 
     // USBHIDDevice interface
     uint16_t _onGetDescriptor(uint8_t* buffer) override;
@@ -92,6 +97,10 @@ private:
     USBHID _hid;
     HID_GamepadReport_Data_t _report;
     bool _ready;
+    bool _dirty = false;
+    uint32_t _lastSent = 0;
+    uint32_t _lastTry = 0;
+    bool sendNow(uint32_t timeoutMs);
 };
 
 // Wrapper around ESP32 USB keyboard using same API as V1
@@ -101,9 +110,16 @@ public:
     void begin();
     void press(uint8_t key);
     void release(uint8_t key);
+    // Release every key and modifier; sends a report only when something was held.
+    bool releaseAll();
+    void service();
 
 private:
     uint8_t _keyReport[8]; // modifiers + reserved + 6 keys
+    bool _dirty = false;
+    uint32_t _lastSent = 0;
+    uint32_t _lastTry = 0;
+    bool sendNow(uint32_t timeoutMs);
     void sendReport();
 };
 
@@ -114,9 +130,15 @@ public:
     void begin();
     void press(uint16_t key);
     void release(uint16_t key);
+    bool releaseAll();
+    void service();
 
 private:
     uint16_t _consumerReport;
+    bool _dirty = false;
+    uint32_t _lastSent = 0;
+    uint32_t _lastTry = 0;
+    bool sendNow(uint32_t timeoutMs);
 };
 
 // Buffered Print wrapper around a USBHIDVendor channel. USBHIDVendor::write()
@@ -148,6 +170,10 @@ extern SingleConsumerClass SingleConsumer;
 extern USBCDC ComSerial;  // USB CDC serial port; kept only for bootloader/upload enumeration
 extern USBHIDVendor HidConfig;   // raw HID channel used for config-tool communication
 extern HidPrintBuffer ConfigOut; // buffered Print helper for outbound HidConfig messages
+
+// millis() of the last config-channel transfer to the PC; the periodic report refresh stays
+// out of the way while the config tool is being answered.
+extern volatile uint32_t g_lastVendorTxMs;
 
 void usbHidSetup();  // Call before USB.begin() — registers HID + CDC, sets VID/PID
 void usbHidStart();  // Call after USB.begin() — opens HID endpoints

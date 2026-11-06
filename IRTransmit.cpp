@@ -15,6 +15,12 @@ void IRTransmit::ensureChannel(uint8_t pin) {
 
   releaseChannel();
 
+  // Take the pin from its LEDC/PWM output before RMT is routed onto it. Only done
+  // here: pinMode() reroutes the pin to plain GPIO, so calling it again while the
+  // channel is kept would disconnect RMT and every later send would go nowhere.
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, LOW);
+
   rmt_tx_channel_config_t txConfig = {};
   txConfig.gpio_num = (gpio_num_t)pin;
   txConfig.clk_src = RMT_CLK_SRC_DEFAULT;
@@ -86,9 +92,6 @@ void IRTransmit::sendCommand(uint8_t outputPin) {
     _carrierFreqHz = newFreq;
     releaseChannel(); // force re-create with new carrier freq
   }
-
-  pinMode(outputPin, OUTPUT);
-  digitalWrite(outputPin, LOW);
 
   switch (config.irProtocol) {
     case IR_PROTOCOL_NEC:

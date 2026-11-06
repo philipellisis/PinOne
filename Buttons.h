@@ -15,11 +15,15 @@ class Buttons {
     void init();
     void sendButtonState();
     bool sendButtonPush(unsigned char i, bool currentButtonState);
+    // Safety net: when no physical button is held any more, nothing may stay pressed in
+    // the USB reports either. Call every pass.
+    void reconcile();
 
 
   private:
     unsigned char buttonOffset = 0;
     unsigned long profileSwitchPressStart = 0;
+    unsigned long idleSince = 0;
     bool profileSwitchImmediateFired = false;
 
     bool isButtonLocked(unsigned char button);

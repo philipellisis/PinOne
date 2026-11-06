@@ -179,9 +179,13 @@ size_t HidPrintBuffer::write(const uint8_t* buffer, size_t size) {
     return size;
 }
 
+volatile uint32_t g_lastVendorTxMs = 0;
+
 void HidPrintBuffer::flush() {
     if (_dev && _len) {
+        g_lastVendorTxMs = millis();
         _dev->write(_buf, _len);
+        g_lastVendorTxMs = millis();
     }
     _len = 0;
 }
@@ -237,9 +241,51 @@ void MinimalGamepad::release(uint8_t button) {
     }
 }
 
-void MinimalGamepad::write() {
+// A report that could not be sent (the USB endpoint was busy for too long) used to
+// be lost for good, so the host kept the previous state, for example a button still
+// pressed. The report is now kept dirty until a send succeeds, and refreshed regularly.
+static const uint32_t HID_REFRESH_MS = 500;
+static const uint32_t HID_RETRY_MS = 20;
+// Same wait as a normal send. A shorter one abandoned reports that were still in flight,
+// which made the next sender (for example the config reply) fail at once with "not ready".
+static const uint32_t HID_RETRY_TIMEOUT_MS = 100;
+static const uint32_t HID_VENDOR_QUIET_MS = 400;
+
+// true while the periodic refresh must stay out of the way. Retries of a failed report
+// still go ahead: SendReport() serialises them with the config replies on its own mutex,
+// and the config tool's monitor screens send often enough that a gated retry never ran.
+static bool vendorBusy() {
+    return millis() - g_lastVendorTxMs < HID_VENDOR_QUIET_MS;
+}
+
+bool MinimalGamepad::sendNow(uint32_t timeoutMs) {
+    _lastTry = millis();
+    bool ok = HID.SendReport(1, &_report, sizeof(_report), timeoutMs);
+    _dirty = !ok;
+    if (ok) _lastSent = _lastTry;
+    return ok;
+}
+
+bool MinimalGamepad::write() {
+    if (!_ready) return false;
+    return sendNow(100);
+}
+
+bool MinimalGamepad::clearButtons() {
+    if (_report.buttons == 0) return false;
+    _report.buttons = 0;
+    write();
+    return true;
+}
+
+void MinimalGamepad::service() {
     if (!_ready) return;
-    HID.SendReport(1, &_report, sizeof(_report));
+    uint32_t now = millis();
+    if (_dirty) {
+        if (now - _lastTry >= HID_RETRY_MS) sendNow(HID_RETRY_TIMEOUT_MS);
+    } else if (!vendorBusy() && now - _lastSent >= HID_REFRESH_MS) {
+        sendNow(HID_RETRY_TIMEOUT_MS);
+    }
 }
 
 // =====================================================================
@@ -292,8 +338,35 @@ void BootKeyboardClass::release(uint8_t key) {
     sendReport();
 }
 
+bool BootKeyboardClass::sendNow(uint32_t timeoutMs) {
+    _lastTry = millis();
+    bool ok = HID.SendReport(3, _keyReport, sizeof(_keyReport), timeoutMs);
+    _dirty = !ok;
+    if (ok) _lastSent = _lastTry;
+    return ok;
+}
+
 void BootKeyboardClass::sendReport() {
-    HID.SendReport(3, _keyReport, sizeof(_keyReport));
+    sendNow(100);
+}
+
+bool BootKeyboardClass::releaseAll() {
+    bool held = false;
+    for (uint8_t i = 0; i < sizeof(_keyReport); i++) {
+        if (_keyReport[i]) held = true;
+        _keyReport[i] = 0;
+    }
+    if (held) sendReport();
+    return held;
+}
+
+void BootKeyboardClass::service() {
+    uint32_t now = millis();
+    if (_dirty) {
+        if (now - _lastTry >= HID_RETRY_MS) sendNow(HID_RETRY_TIMEOUT_MS);
+    } else if (!vendorBusy() && now - _lastSent >= HID_REFRESH_MS) {
+        sendNow(HID_RETRY_TIMEOUT_MS);
+    }
 }
 
 // =====================================================================
@@ -307,17 +380,40 @@ void SingleConsumerClass::begin() {
     _consumerReport = 0;
 }
 
+bool SingleConsumerClass::sendNow(uint32_t timeoutMs) {
+    uint8_t report[2] = {(uint8_t)(_consumerReport & 0xFF), (uint8_t)(_consumerReport >> 8)};
+    _lastTry = millis();
+    bool ok = HID.SendReport(2, report, sizeof(report), timeoutMs);
+    _dirty = !ok;
+    if (ok) _lastSent = _lastTry;
+    return ok;
+}
+
+bool SingleConsumerClass::releaseAll() {
+    if (_consumerReport == 0) return false;
+    _consumerReport = 0;
+    sendNow(100);
+    return true;
+}
+
+void SingleConsumerClass::service() {
+    uint32_t now = millis();
+    if (_dirty) {
+        if (now - _lastTry >= HID_RETRY_MS) sendNow(HID_RETRY_TIMEOUT_MS);
+    } else if (!vendorBusy() && now - _lastSent >= HID_REFRESH_MS) {
+        sendNow(HID_RETRY_TIMEOUT_MS);
+    }
+}
+
 void SingleConsumerClass::press(uint16_t key) {
     _consumerReport = key;
-    uint8_t report[2] = {(uint8_t)(_consumerReport & 0xFF), (uint8_t)(_consumerReport >> 8)};
-    HID.SendReport(2, report, sizeof(report));
+    sendNow(100);
 }
 
 void SingleConsumerClass::release(uint16_t key) {
     if (_consumerReport == key) {
         _consumerReport = 0;
-        uint8_t report[2] = {0, 0};
-        HID.SendReport(2, report, sizeof(report));
+        sendNow(100);
     }
 }
 
@@ -349,7 +445,10 @@ void usbHidStart() {
     Gamepad1.begin();
     BootKeyboard.begin();
     SingleConsumer.begin();
-    HidConfig.setRxBufferSize(1024);  // must precede begin(); begin() only applies its 256-byte default if unset
+    // must precede begin(); begin() only applies its 256-byte default if unset.
+    // A report from the PC is 63 bytes, so this holds about 65 of them; when the queue
+    // is full the rest of a report is dropped, which used to desynchronise the parser.
+    HidConfig.setRxBufferSize(4096);
     HidConfig.begin();
     ConfigOut.begin(&HidConfig);
 }

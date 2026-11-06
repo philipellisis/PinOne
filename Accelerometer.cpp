@@ -283,7 +283,10 @@ int16_t Accelerometer::softLimit(int16_t value, int limit) const {
 }
 
 void Accelerometer::processTiltButton() {
-  if (config.tiltButton >= 24 || config.tiltButtonRight >=32 || config.tiltButtonLeft >= 32 || config.tiltButtonUp >= 32 || config.tiltButtonDown >= 32) return;
+  // 23 = tilt buttons enabled (the config tool writes 24 when disabled). Anything
+  // else must leave the buttons alone: the tilt release below would otherwise cut
+  // off real presses of buttons that share the tilt assignments.
+  if (config.tiltButton != 23 || config.tiltButtonRight >=32 || config.tiltButtonLeft >= 32 || config.tiltButtonUp >= 32 || config.tiltButtonDown >= 32) return;
 
   if (tiltSuppressTime > 0) {
     tiltSuppressTime--;

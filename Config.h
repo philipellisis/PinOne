@@ -7,7 +7,7 @@
 #define BLE_AXIS_COUNT 4
 
 // Reported to the config tool and over Bluetooth
-#define FIRMWARE_VERSION "3.2.1"
+#define FIRMWARE_VERSION "3.3.0"
 
 class Config {
 
@@ -76,7 +76,8 @@ class Config {
     unsigned char plungerAverageRead = 10;
     unsigned char nightModeButton = 14;
     unsigned char plungerLaunchButton = 23;
-    unsigned char tiltButton = 22;
+    // 23 = accelerometer tilt buttons enabled, 24 = disabled
+    unsigned char tiltButton = 24;
     unsigned char shiftButton = 2;
 
     unsigned char tiltButtonUp = 9;
@@ -102,9 +103,17 @@ class Config {
     // the legacy BleController storage. Not persisted.
     bool bleMapStored = false;
     // False = the combined keyboard + gamepad + DOF profile; true = emulate an
-    // Xbox Series X controller (gamepad only; rumble drives outputs 1 and 2).
+    // Xbox Series X controller (gamepad only; rumble drives the outputs below).
     // Only one profile is ever advertised, so this applies after a restart.
     bool bleXboxMode = false;
+    // Outputs (1-based, 0 = none) the Xbox left (strong) and right (weak) rumble
+    // motors drive. With bleRumblePwm the motor's 0-100% magnitude sets the output
+    // level; otherwise the output turns fully on once the magnitude reaches
+    // bleRumbleThreshold (1-100%).
+    unsigned char bleRumbleLeftOutput = 1;
+    unsigned char bleRumbleRightOutput = 2;
+    bool bleRumblePwm = false;
+    unsigned char bleRumbleThreshold = 1;
 
     // Which gamepad axis each nudge/plunger signal is reported on over USB:
     // 0 = X, 1 = Y, 2 = Z, 3 = Rx, 4 = Ry (see MinimalGamepad::setAxis()).
@@ -123,6 +132,11 @@ class Config {
     unsigned char done = 0;
     bool nightMode = false;
     bool debug = false;
+    // A config upload from the tool runs in two steps so a bad transfer never touches the
+    // live config: receiveConfig() reads the whole transfer into a buffer and checks it
+    // (replying R,E if it is incomplete or garbled), and only when it returns true does
+    // updateConfigFromSerial() apply and save it.
+    bool receiveConfig();
     void updateConfigFromSerial();
     void sendConfig();
     void setPlunger();
@@ -224,6 +238,12 @@ class Config {
     unsigned char mpuState = 0;
 
   private:
+    // must match the size of toConfigBytes() in the config tool; the last byte is the end marker
+    static const uint16_t CONFIG_TRANSFER_SIZE = 613;
+    static const unsigned char CONFIG_END_MARKER = 42;
+    unsigned char configTransfer[CONFIG_TRANSFER_SIZE];
+    uint16_t configTransferPos = 0;
+    unsigned char serialRead();
     unsigned char blockRead();
     void printError();
     void printComma(unsigned char value);

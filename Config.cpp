@@ -15,6 +15,15 @@ static unsigned char validAxis(unsigned char axis, unsigned char count, unsigned
   return axis < count ? axis : fallback;
 }
 
+// An output number (1-63, 0 = none) outside the valid range falls back to its default
+static unsigned char validOutput(unsigned char output, unsigned char fallback) {
+  return output <= 63 ? output : fallback;
+}
+
+static unsigned char validRumbleThreshold(unsigned char threshold) {
+  return constrain(threshold, 1, 100);
+}
+
 Config::Config() {
 }
 
@@ -110,6 +119,10 @@ void Config::init() {
     accelerometerSoftLimitEnabled = prefs.getBool("accelSoftEn", accelerometerSoftLimitEnabled);
     accelerometerSoftLimitKnee = prefs.getUChar("accelSoftKnee", accelerometerSoftLimitKnee);
     bleXboxMode = prefs.getBool("bleXbox", bleXboxMode);
+    bleRumbleLeftOutput = validOutput(prefs.getUChar("rumbleOutL", bleRumbleLeftOutput), 1);
+    bleRumbleRightOutput = validOutput(prefs.getUChar("rumbleOutR", bleRumbleRightOutput), 2);
+    bleRumblePwm = prefs.getBool("rumblePwm", bleRumblePwm);
+    bleRumbleThreshold = validRumbleThreshold(prefs.getUChar("rumbleThresh", bleRumbleThreshold));
 
     usbNudgeXAxis = validAxis(prefs.getUChar("usbAxNudX", usbNudgeXAxis), USB_AXIS_COUNT, 0);
     usbNudgeYAxis = validAxis(prefs.getUChar("usbAxNudY", usbNudgeYAxis), USB_AXIS_COUNT, 1);
@@ -231,6 +244,10 @@ void Config::saveConfig() {
     prefs.putBool("accelSoftEn", accelerometerSoftLimitEnabled);
     prefs.putUChar("accelSoftKnee", accelerometerSoftLimitKnee);
     prefs.putBool("bleXbox", bleXboxMode);
+    prefs.putUChar("rumbleOutL", bleRumbleLeftOutput);
+    prefs.putUChar("rumbleOutR", bleRumbleRightOutput);
+    prefs.putBool("rumblePwm", bleRumblePwm);
+    prefs.putUChar("rumbleThresh", bleRumbleThreshold);
 
     prefs.putUChar("usbAxNudX", usbNudgeXAxis);
     prefs.putUChar("usbAxNudY", usbNudgeYAxis);
@@ -262,8 +279,26 @@ void Config::saveConfig() {
     prefs.end();
 }
 
-void Config::updateConfigFromSerial() {
+bool Config::receiveConfig() {
     done = 0;
+    for (uint16_t i = 0; i < CONFIG_TRANSFER_SIZE; i++) {
+      configTransfer[i] = serialRead();
+    }
+    if (done == 0 && configTransfer[CONFIG_TRANSFER_SIZE - 1] == CONFIG_END_MARKER) {
+      return true;
+    }
+    // Drop what is left of a garbled transfer, so the DOF parser doesn't read the
+    // rest of the config as output or admin commands
+    while (HidConfig.available()) {
+      HidConfig.read();
+    }
+    printError();
+    return false;
+}
+
+// Applies the transfer receiveConfig() has checked; blockRead() reads from that buffer.
+void Config::updateConfigFromSerial() {
+    configTransferPos = 0;
     // get first 62 bank maximum values
     readConfigArray(toySpecialOption, 63);
     // get next 62 bank maximum values
@@ -378,16 +413,15 @@ void Config::updateConfigFromSerial() {
     bleNudgeYAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 1);
     blePlungerAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 3);
 
-    if(blockRead() != 42) {
-      done = 1;
-    }
+    bleRumbleLeftOutput = validOutput(blockRead(), 1);
+    bleRumbleRightOutput = validOutput(blockRead(), 2);
+    bleRumblePwm = blockRead();
+    bleRumbleThreshold = validRumbleThreshold(blockRead());
 
-    if (done > 0) {
-      printError();
-    } else {
-      saveConfig();
-      printSuccess();
-    }
+    blockRead(); // end marker, already checked by receiveConfig()
+
+    saveConfig();
+    printSuccess();
 }
 
 
@@ -507,6 +541,11 @@ void Config::sendConfig() {
     printComma(bleNudgeYAxis);
     printComma(blePlungerAxis);
 
+    printComma(bleRumbleLeftOutput);
+    printComma(bleRumbleRightOutput);
+    printComma(bleRumblePwm);
+    printComma(bleRumbleThreshold);
+
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();
 }
@@ -527,6 +566,14 @@ void Config::printSuccess() {
 }
 
 unsigned char Config::blockRead() {
+    if (configTransferPos >= CONFIG_TRANSFER_SIZE) {
+      return 0;
+    }
+    return configTransfer[configTransferPos++];
+}
+
+// Next byte of the transfer from the tool, waiting up to 5s for it
+unsigned char Config::serialRead() {
     if (done > 0) {
       return 0;
     }
@@ -544,7 +591,9 @@ unsigned char Config::blockRead() {
 }
 
 int16_t Config::readIntFromByte() {
-  return (blockRead() << 8) + blockRead();
+  // two statements: the order the operands of + are evaluated in is not defined
+  int16_t high = blockRead();
+  return (high << 8) + blockRead();
 }
 
 void Config::readConfigArray(unsigned char* configArray, unsigned char size) {
