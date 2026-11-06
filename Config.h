@@ -123,6 +123,11 @@ class Config {
     unsigned char done = 0;
     bool nightMode = false;
     bool debug = false;
+    // A config upload from the tool runs in two steps so a bad transfer never touches the
+    // live config: receiveConfig() reads the whole transfer into a buffer and checks it
+    // (replying R,E if it is incomplete or garbled), and only when it returns true does
+    // updateConfigFromSerial() apply and save it.
+    bool receiveConfig();
     void updateConfigFromSerial();
     void sendConfig();
     void setPlunger();
@@ -224,6 +229,12 @@ class Config {
     unsigned char mpuState = 0;
 
   private:
+    // must match the size of toConfigBytes() in the config tool; the last byte is the end marker
+    static const uint16_t CONFIG_TRANSFER_SIZE = 609;
+    static const unsigned char CONFIG_END_MARKER = 42;
+    unsigned char configTransfer[CONFIG_TRANSFER_SIZE];
+    uint16_t configTransferPos = 0;
+    unsigned char serialRead();
     unsigned char blockRead();
     void printError();
     void printComma(unsigned char value);

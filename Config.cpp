@@ -262,8 +262,26 @@ void Config::saveConfig() {
     prefs.end();
 }
 
-void Config::updateConfigFromSerial() {
+bool Config::receiveConfig() {
     done = 0;
+    for (uint16_t i = 0; i < CONFIG_TRANSFER_SIZE; i++) {
+      configTransfer[i] = serialRead();
+    }
+    if (done == 0 && configTransfer[CONFIG_TRANSFER_SIZE - 1] == CONFIG_END_MARKER) {
+      return true;
+    }
+    // Drop what is left of a garbled transfer, so the DOF parser doesn't read the
+    // rest of the config as output or admin commands
+    while (HidConfig.available()) {
+      HidConfig.read();
+    }
+    printError();
+    return false;
+}
+
+// Applies the transfer receiveConfig() has checked; blockRead() reads from that buffer.
+void Config::updateConfigFromSerial() {
+    configTransferPos = 0;
     // get first 62 bank maximum values
     readConfigArray(toySpecialOption, 63);
     // get next 62 bank maximum values
@@ -378,16 +396,10 @@ void Config::updateConfigFromSerial() {
     bleNudgeYAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 1);
     blePlungerAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 3);
 
-    if(blockRead() != 42) {
-      done = 1;
-    }
+    blockRead(); // end marker, already checked by receiveConfig()
 
-    if (done > 0) {
-      printError();
-    } else {
-      saveConfig();
-      printSuccess();
-    }
+    saveConfig();
+    printSuccess();
 }
 
 
@@ -527,6 +539,14 @@ void Config::printSuccess() {
 }
 
 unsigned char Config::blockRead() {
+    if (configTransferPos >= CONFIG_TRANSFER_SIZE) {
+      return 0;
+    }
+    return configTransfer[configTransferPos++];
+}
+
+// Next byte of the transfer from the tool, waiting up to 5s for it
+unsigned char Config::serialRead() {
     if (done > 0) {
       return 0;
     }
@@ -544,7 +564,9 @@ unsigned char Config::blockRead() {
 }
 
 int16_t Config::readIntFromByte() {
-  return (blockRead() << 8) + blockRead();
+  // two statements: the order the operands of + are evaluated in is not defined
+  int16_t high = blockRead();
+  return (high << 8) + blockRead();
 }
 
 void Config::readConfigArray(unsigned char* configArray, unsigned char size) {

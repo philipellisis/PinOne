@@ -40,7 +40,9 @@ static bool i2cDevicePresent(uint8_t addr) {
 }
 
 Outputs::Outputs() {
-   memset(dofShadow, 0xFF, sizeof(dofShadow));
+   for (int i = 0; i < 63; i++) {
+    dofShadow[i] = DOF_UNKNOWN;
+   }
    for (int index = 0; index < numberOutputs; index++) {
     pinMode(outputList[index], OUTPUT);
    }
@@ -106,7 +108,7 @@ void Outputs::requestOutput(unsigned char outputId, unsigned char outputValue) {
 
 void Outputs::updateOutput(unsigned char outputId, unsigned char outputValue) {
   if (outputId >= 63) return;
-  dofShadow[outputId] = 0xFF;
+  dofShadow[outputId] = DOF_UNKNOWN;
   applyOutput(outputId, outputValue);
 }
 

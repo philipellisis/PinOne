@@ -52,6 +52,10 @@ void Communication::communicate() {
         updateOutputs();
       }
       dataLocation = 0;
+      // Stop at an admin command so sendAdmin() runs before anything that follows it.
+      // GET_CONFIG's padding and the config data come right behind the command, and
+      // the parser must not eat them.
+      if (kind == adminNumber) break;
     } else {
       dataLocation++;
     }
@@ -112,7 +116,7 @@ void Communication::sendAdmin() {
         // Discard the rest of the GET_CONFIG admin trigger's own OUTPUT report
         // (it's always zero-padded out to the full 63-byte HID payload, even
         // though only 9 bytes were meaningful). Without this,
-        // updateConfigFromSerial()'s exact-byte-count reads would consume that
+        // receiveConfig()'s exact-byte-count reads would consume that
         // padding as if it were the start of the config data, shifting every
         // field read for the rest of the transfer. Only that known amount is
         // skipped, and before waiting on the input pass, so config bytes that
@@ -121,6 +125,12 @@ void Communication::sendAdmin() {
         const uint8_t COMMAND_PADDING = 63 - 9;
         for (uint8_t i = 0; i < COMMAND_PADDING && HidConfig.available(); i++) {
           HidConfig.read();
+        }
+        // Read and check the whole transfer first, with the input pass still running.
+        // A bad transfer is rejected here and leaves the live config as it was.
+        if (!config.receiveConfig()) {
+          admin = 0;
+          break;
         }
         // Pause the input pass while config is rewritten, so it never reads
         // a half-updated profile or accelerometer setting

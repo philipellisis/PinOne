@@ -34,8 +34,10 @@ class Outputs {
   private:
     void applyOutput(unsigned char outputId, unsigned char outputValue);
     void updateOutputInternal(unsigned char outputId, unsigned char outputValue);
-    // last value DOF asked for per output; 0xFF = unknown (changed by something else)
-    unsigned char dofShadow[63];
+    // last value DOF asked for per output; DOF_UNKNOWN = changed by something else.
+    // 16 bit so the marker can never match a real value (255 is a valid DOF value).
+    static const uint16_t DOF_UNKNOWN = 0xFFFF;
+    uint16_t dofShadow[63];
     unsigned char numberOutputs = 15;
     unsigned char outputValues[63] = {0};
     long int timeTurnedOn[63] = {0};

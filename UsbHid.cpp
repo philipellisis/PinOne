@@ -251,7 +251,9 @@ static const uint32_t HID_RETRY_MS = 20;
 static const uint32_t HID_RETRY_TIMEOUT_MS = 100;
 static const uint32_t HID_VENDOR_QUIET_MS = 400;
 
-// true while the periodic refresh / retries must stay out of the way
+// true while the periodic refresh must stay out of the way. Retries of a failed report
+// still go ahead: SendReport() serialises them with the config replies on its own mutex,
+// and the config tool's monitor screens send often enough that a gated retry never ran.
 static bool vendorBusy() {
     return millis() - g_lastVendorTxMs < HID_VENDOR_QUIET_MS;
 }
@@ -277,11 +279,11 @@ bool MinimalGamepad::clearButtons() {
 }
 
 void MinimalGamepad::service() {
-    if (!_ready || vendorBusy()) return;
+    if (!_ready) return;
     uint32_t now = millis();
     if (_dirty) {
         if (now - _lastTry >= HID_RETRY_MS) sendNow(HID_RETRY_TIMEOUT_MS);
-    } else if (now - _lastSent >= HID_REFRESH_MS) {
+    } else if (!vendorBusy() && now - _lastSent >= HID_REFRESH_MS) {
         sendNow(HID_RETRY_TIMEOUT_MS);
     }
 }
@@ -359,11 +361,10 @@ bool BootKeyboardClass::releaseAll() {
 }
 
 void BootKeyboardClass::service() {
-    if (vendorBusy()) return;
     uint32_t now = millis();
     if (_dirty) {
         if (now - _lastTry >= HID_RETRY_MS) sendNow(HID_RETRY_TIMEOUT_MS);
-    } else if (now - _lastSent >= HID_REFRESH_MS) {
+    } else if (!vendorBusy() && now - _lastSent >= HID_REFRESH_MS) {
         sendNow(HID_RETRY_TIMEOUT_MS);
     }
 }
@@ -396,11 +397,10 @@ bool SingleConsumerClass::releaseAll() {
 }
 
 void SingleConsumerClass::service() {
-    if (vendorBusy()) return;
     uint32_t now = millis();
     if (_dirty) {
         if (now - _lastTry >= HID_RETRY_MS) sendNow(HID_RETRY_TIMEOUT_MS);
-    } else if (now - _lastSent >= HID_REFRESH_MS) {
+    } else if (!vendorBusy() && now - _lastSent >= HID_REFRESH_MS) {
         sendNow(HID_RETRY_TIMEOUT_MS);
     }
 }
