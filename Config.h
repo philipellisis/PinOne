@@ -7,7 +7,7 @@
 #define BLE_AXIS_COUNT 4
 
 // Reported to the config tool and over Bluetooth
-#define FIRMWARE_VERSION "3.2.2"
+#define FIRMWARE_VERSION "3.3.0"
 
 class Config {
 
@@ -76,7 +76,8 @@ class Config {
     unsigned char plungerAverageRead = 10;
     unsigned char nightModeButton = 14;
     unsigned char plungerLaunchButton = 23;
-    unsigned char tiltButton = 22;
+    // 23 = accelerometer tilt buttons enabled, 24 = disabled
+    unsigned char tiltButton = 24;
     unsigned char shiftButton = 2;
 
     unsigned char tiltButtonUp = 9;
