@@ -15,6 +15,15 @@ static unsigned char validAxis(unsigned char axis, unsigned char count, unsigned
   return axis < count ? axis : fallback;
 }
 
+// An output number (1-63, 0 = none) outside the valid range falls back to its default
+static unsigned char validOutput(unsigned char output, unsigned char fallback) {
+  return output <= 63 ? output : fallback;
+}
+
+static unsigned char validRumbleThreshold(unsigned char threshold) {
+  return constrain(threshold, 1, 100);
+}
+
 Config::Config() {
 }
 
@@ -110,6 +119,10 @@ void Config::init() {
     accelerometerSoftLimitEnabled = prefs.getBool("accelSoftEn", accelerometerSoftLimitEnabled);
     accelerometerSoftLimitKnee = prefs.getUChar("accelSoftKnee", accelerometerSoftLimitKnee);
     bleXboxMode = prefs.getBool("bleXbox", bleXboxMode);
+    bleRumbleLeftOutput = validOutput(prefs.getUChar("rumbleOutL", bleRumbleLeftOutput), 1);
+    bleRumbleRightOutput = validOutput(prefs.getUChar("rumbleOutR", bleRumbleRightOutput), 2);
+    bleRumblePwm = prefs.getBool("rumblePwm", bleRumblePwm);
+    bleRumbleThreshold = validRumbleThreshold(prefs.getUChar("rumbleThresh", bleRumbleThreshold));
 
     usbNudgeXAxis = validAxis(prefs.getUChar("usbAxNudX", usbNudgeXAxis), USB_AXIS_COUNT, 0);
     usbNudgeYAxis = validAxis(prefs.getUChar("usbAxNudY", usbNudgeYAxis), USB_AXIS_COUNT, 1);
@@ -231,6 +244,10 @@ void Config::saveConfig() {
     prefs.putBool("accelSoftEn", accelerometerSoftLimitEnabled);
     prefs.putUChar("accelSoftKnee", accelerometerSoftLimitKnee);
     prefs.putBool("bleXbox", bleXboxMode);
+    prefs.putUChar("rumbleOutL", bleRumbleLeftOutput);
+    prefs.putUChar("rumbleOutR", bleRumbleRightOutput);
+    prefs.putBool("rumblePwm", bleRumblePwm);
+    prefs.putUChar("rumbleThresh", bleRumbleThreshold);
 
     prefs.putUChar("usbAxNudX", usbNudgeXAxis);
     prefs.putUChar("usbAxNudY", usbNudgeYAxis);
@@ -396,6 +413,11 @@ void Config::updateConfigFromSerial() {
     bleNudgeYAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 1);
     blePlungerAxis = validAxis(blockRead(), BLE_AXIS_COUNT, 3);
 
+    bleRumbleLeftOutput = validOutput(blockRead(), 1);
+    bleRumbleRightOutput = validOutput(blockRead(), 2);
+    bleRumblePwm = blockRead();
+    bleRumbleThreshold = validRumbleThreshold(blockRead());
+
     blockRead(); // end marker, already checked by receiveConfig()
 
     saveConfig();
@@ -518,6 +540,11 @@ void Config::sendConfig() {
     printComma(bleNudgeXAxis);
     printComma(bleNudgeYAxis);
     printComma(blePlungerAxis);
+
+    printComma(bleRumbleLeftOutput);
+    printComma(bleRumbleRightOutput);
+    printComma(bleRumblePwm);
+    printComma(bleRumbleThreshold);
 
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();

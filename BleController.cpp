@@ -76,8 +76,8 @@ public:
             // [dcEnableActuators, leftTrigger, rightTrigger, weak, strong, ...]
             if (len < 5) return;
             bool enabled = (data[0] & 0x0F) != 0;
-            _ctrl->_rumbleWeak   = enabled && data[3] > 0;
-            _ctrl->_rumbleStrong = enabled && data[4] > 0;
+            _ctrl->_rumbleRight = enabled ? min(data[3], (uint8_t)100) : 0;
+            _ctrl->_rumbleLeft  = enabled ? min(data[4], (uint8_t)100) : 0;
             return;
         }
         if (len < 8) return;
@@ -255,8 +255,8 @@ void BleController::begin() {
 void BleController::update() {
     // A dropped link can't send a rumble-off, so stop the solenoids here
     if (_xboxMode && !_connected) {
-        _rumbleStrong = false;
-        _rumbleWeak   = false;
+        _rumbleLeft  = 0;
+        _rumbleRight = 0;
     }
 
     // Apply any DOF output packets (or Xbox rumble) from the BLE host
@@ -415,17 +415,16 @@ void BleController::processGamepadMode() {
 
 void BleController::applyOutputPackets() {
     if (_xboxMode) {
-        // Rumble motors drive outputs 1 and 2 (ids 0 and 1) fully on or off
-        bool strong = _rumbleStrong;
-        bool weak   = _rumbleWeak;
-        if (strong != _appliedRumbleStrong) {
-            outputs.requestOutput(0, strong ? 255 : 0);
-            _appliedRumbleStrong = strong;
+        uint8_t left  = _rumbleLeft;
+        uint8_t right = _rumbleRight;
+        uint8_t rightOutput = config.bleRumbleRightOutput;
+        // Both motors on one output: drive it from whichever is stronger
+        if (rightOutput == config.bleRumbleLeftOutput) {
+            left = max(left, right);
+            rightOutput = 0;
         }
-        if (weak != _appliedRumbleWeak) {
-            outputs.requestOutput(1, weak ? 255 : 0);
-            _appliedRumbleWeak = weak;
-        }
+        applyRumble(left, config.bleRumbleLeftOutput, _appliedRumbleLeft);
+        applyRumble(right, rightOutput, _appliedRumbleRight);
         return;
     }
 
@@ -442,6 +441,29 @@ void BleController::applyOutputPackets() {
             }
         }
     }
+}
+
+// Drives a rumble motor's output: scaled to 0-255 in PWM mode, otherwise fully on
+// once the magnitude reaches the threshold. Only changes are sent, as each one
+// restarts the output's max-on-time (solenoid life extender) timer.
+void BleController::applyRumble(uint8_t magnitude, uint8_t output, RumbleOutput& applied) {
+    uint8_t value;
+    if (config.bleRumblePwm) {
+        value = (magnitude * 255 + 50) / 100;
+    } else {
+        value = magnitude >= config.bleRumbleThreshold ? 255 : 0;
+    }
+    if (output != applied.output) {
+        // Reassigned by the config tool: don't leave the old output running
+        if (applied.output > 0 && applied.value > 0) {
+            outputs.requestOutput(applied.output - 1, 0);
+        }
+        applied.output = output;
+        applied.value  = 0;
+    }
+    if (output == 0 || value == applied.value) return;
+    outputs.requestOutput(output - 1, value);
+    applied.value = value;
 }
 
 // =====================================================================

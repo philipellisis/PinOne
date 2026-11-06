@@ -102,9 +102,17 @@ class Config {
     // the legacy BleController storage. Not persisted.
     bool bleMapStored = false;
     // False = the combined keyboard + gamepad + DOF profile; true = emulate an
-    // Xbox Series X controller (gamepad only; rumble drives outputs 1 and 2).
+    // Xbox Series X controller (gamepad only; rumble drives the outputs below).
     // Only one profile is ever advertised, so this applies after a restart.
     bool bleXboxMode = false;
+    // Outputs (1-based, 0 = none) the Xbox left (strong) and right (weak) rumble
+    // motors drive. With bleRumblePwm the motor's 0-100% magnitude sets the output
+    // level; otherwise the output turns fully on once the magnitude reaches
+    // bleRumbleThreshold (1-100%).
+    unsigned char bleRumbleLeftOutput = 1;
+    unsigned char bleRumbleRightOutput = 2;
+    bool bleRumblePwm = false;
+    unsigned char bleRumbleThreshold = 1;
 
     // Which gamepad axis each nudge/plunger signal is reported on over USB:
     // 0 = X, 1 = Y, 2 = Z, 3 = Rx, 4 = Ry (see MinimalGamepad::setAxis()).
@@ -230,7 +238,7 @@ class Config {
 
   private:
     // must match the size of toConfigBytes() in the config tool; the last byte is the end marker
-    static const uint16_t CONFIG_TRANSFER_SIZE = 609;
+    static const uint16_t CONFIG_TRANSFER_SIZE = 613;
     static const unsigned char CONFIG_END_MARKER = 42;
     unsigned char configTransfer[CONFIG_TRANSFER_SIZE];
     uint16_t configTransferPos = 0;

@@ -143,12 +143,20 @@ private:
     // change to bleXboxMode takes effect after a restart.
     bool _xboxMode = false;
 
-    // Xbox rumble motors running (magnitude > 0) as last set by the host, mapped
-    // to outputs 1 (strong motor) and 2 (weak motor) in applyOutputPackets().
-    volatile bool _rumbleStrong = false;
-    volatile bool _rumbleWeak   = false;
-    bool _appliedRumbleStrong = false;
-    bool _appliedRumbleWeak   = false;
+    // Xbox rumble motor magnitudes (0-100) as last set by the host, applied to the
+    // configured left (strong motor) and right (weak motor) outputs in
+    // applyOutputPackets().
+    volatile uint8_t _rumbleLeft  = 0;
+    volatile uint8_t _rumbleRight = 0;
+
+    // The output (1-based, 0 = none) a rumble motor last drove and the value it set
+    struct RumbleOutput {
+        uint8_t output = 0;
+        uint8_t value  = 0;
+    };
+    RumbleOutput _appliedRumbleLeft;
+    RumbleOutput _appliedRumbleRight;
+    void applyRumble(uint8_t magnitude, uint8_t output, RumbleOutput& applied);
 
     // DOF output packet received from the BLE host
     uint8_t _outputPkt[8] = {};
