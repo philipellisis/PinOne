@@ -70,20 +70,62 @@ public:
     OutputCallbacks(BleController* ctrl) : _ctrl(ctrl) {}
 
     void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo& info) override {
-        const uint8_t* data = chr->getValue().data();
-        size_t len          = chr->getValue().length();
+        // getValue() returns a copy: keep it while its data is read
+        const NimBLEAttValue value = chr->getValue();
+        const uint8_t* data = value.data();
+        size_t len          = value.length();
         if (_ctrl->_xboxMode) {
-            // [dcEnableActuators, leftTrigger, rightTrigger, weak, strong, ...]
+            // [dcEnableActuators, leftTrigger, rightTrigger, strong, weak, ...]: hosts send the strong (low frequency) motor
+            // first, as Linux hid-microsoft (magnitude[2]) and SDL's Bluetooth rumble packet do
             if (len < 5) return;
             bool enabled = (data[0] & 0x0F) != 0;
-            _ctrl->_rumbleRight = enabled ? min(data[3], (uint8_t)100) : 0;
-            _ctrl->_rumbleLeft  = enabled ? min(data[4], (uint8_t)100) : 0;
+            _ctrl->_rumbleLeft  = enabled ? min(data[3], (uint8_t)100) : 0;
+            _ctrl->_rumbleRight = enabled ? min(data[4], (uint8_t)100) : 0;
             return;
         }
+        // DOF feature report: [bankIndex 0-8, v0..v6] or [0xFF, outputId, value, ...], turned into the USB frame and queued, so it
+        // is applied like USB DOF (light show suppressed, values DOF already set skipped) and no write overwrites another one
         if (len < 8) return;
-        memcpy(_ctrl->_outputPkt, data, 8);
-        _ctrl->_outputDirty = true;
+        uint8_t frame[9] = {};
+        if (data[0] == 0xFF) {
+            frame[1] = 252;
+            frame[2] = data[1];
+            frame[3] = data[2];
+        } else if (data[0] <= 8) {
+            frame[1] = 200 + data[0];
+            memcpy(frame + 2, data + 1, 7);
+        } else {
+            return;
+        }
+        comm.queueBleFrame(frame);
     }
+};
+
+// DOF in Xbox mode: the vendor output report (XBOX_DOF_REPORT_ID), USB frames as they are, one or more per write
+class BleController::DofCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo&) override {
+        const NimBLEAttValue value = chr->getValue(); // a copy: kept while its data is read
+        const uint8_t* data = value.data();
+        for (size_t offset = 0; offset + XBOX_DOF_REPORT_SIZE <= value.length(); offset += XBOX_DOF_REPORT_SIZE) {
+            comm.queueBleFrame(data + offset);
+        }
+    }
+};
+
+// Identity in Xbox mode (XBOX_IDENTITY_REPORT_ID): read only, a host's write (SET_REPORT) is undone
+static void setIdentityValue(NimBLECharacteristic* chr) {
+    uint8_t value[XBOX_IDENTITY_REPORT_SIZE] = {};
+    memcpy(value, "PinOne", 6);
+    value[8] = XBOX_IDENTITY_FORMAT;
+    value[9] = XBOX_IDENTITY_CAPS_DOF;
+    strncpy((char*)value + XBOX_IDENTITY_VERSION_OFFSET, FIRMWARE_VERSION, XBOX_IDENTITY_REPORT_SIZE - XBOX_IDENTITY_VERSION_OFFSET - 1);
+    chr->setValue(value, sizeof(value));
+}
+
+class BleController::IdentityCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo&) override { setIdentityValue(chr); }
 };
 
 class BleController::InputCallbacks : public NimBLECharacteristicCallbacks {
@@ -206,6 +248,9 @@ void BleController::begin() {
 
         _gpReport = _hidDevice->getInputReport(XBOX_INPUT_REPORT_ID);
         _outputReport = _hidDevice->getOutputReport(XBOX_OUTPUT_REPORT_ID);
+        _dofReport = _hidDevice->getOutputReport(XBOX_DOF_REPORT_ID);
+        _identityReport = _hidDevice->getFeatureReport(XBOX_IDENTITY_REPORT_ID);
+        setIdentityValue(_identityReport);
     } else {
         _hidDevice->setManufacturer("PinOne");
         _hidDevice->setPnp(0x02, 0x39F5, 0x9208, 0x0100);  // Cleveland Software Design's assigned USB-IF vendor ID
@@ -240,6 +285,14 @@ void BleController::begin() {
 
     static OutputCallbacks outCb(this);
     _outputReport->setCallbacks(&outCb);
+    if (_dofReport) {
+        static DofCallbacks dofCb;
+        _dofReport->setCallbacks(&dofCb);
+    }
+    if (_identityReport) {
+        static IdentityCallbacks identityCb;
+        _identityReport->setCallbacks(&identityCb);
+    }
 
     _hidDevice->startServices();
 
@@ -425,22 +478,8 @@ void BleController::applyOutputPackets() {
         }
         applyRumble(left, config.bleRumbleLeftOutput, _appliedRumbleLeft);
         applyRumble(right, rightOutput, _appliedRumbleRight);
-        return;
     }
-
-    uint8_t buf[8];
-    while (getOutputPacket(buf)) {
-        if (buf[0] == 0xFF) {
-            // Single output: [0xFF, outputId, value, ...]
-            outputs.requestOutput(buf[1], buf[2]);
-        } else if (buf[0] <= 8) {
-            // Bank update: [bankIndex, v0, v1, v2, v3, v4, v5, v6]
-            uint8_t baseIndex = buf[0] * 7;
-            for (int i = 0; i < 7; i++) {
-                outputs.requestOutput(baseIndex + i, buf[1 + i]);
-            }
-        }
-    }
+    // DOF packets from the host are queued to Communication by the report callbacks and applied on the output task
 }
 
 // Drives a rumble motor's output: scaled to 0-255 in PWM mode, otherwise fully on
@@ -546,13 +585,6 @@ bool BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
     _gpState.rt      = rt;
     _gpReport->setValue((uint8_t*)&_gpState, sizeof(_gpState));
     return _gpReport->notify((uint8_t*)&_gpState, sizeof(_gpState));
-}
-
-bool BleController::getOutputPacket(uint8_t* buf) {
-    if (!_outputDirty) return false;
-    _outputDirty = false;
-    memcpy(buf, _outputPkt, 8);
-    return true;
 }
 
 uint8_t BleController::buildDpad(bool up, bool right, bool down, bool left) {

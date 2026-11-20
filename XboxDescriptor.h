@@ -13,6 +13,26 @@
 #define XBOX_INPUT_REPORT_ID    0x01
 #define XBOX_OUTPUT_REPORT_ID   0x03
 
+// DOF over Bluetooth in Xbox mode: a vendor output report of its own top-level collection, after the Xbox one, so the gamepad
+// part is the stock map and hosts that don't know it ignore it. Same usage page, usage and report ID as the USB vendor channel
+// (USBHIDVendor: 0xFF00, 0x01, report 6), so libdof finds it like the USB one, and the same 9-byte frames
+// ([0, 200+bank, v0..v6] or [0, 252, output, value, ...]), one per write. A real Xbox pad has no 0xFF00 collection.
+#define XBOX_DOF_REPORT_ID      0x06
+#define XBOX_DOF_REPORT_SIZE    9
+
+// Identity in Xbox mode: a feature report of the same vendor collection, so a host can tell the PinOne from a real Xbox pad (the
+// two share the name, ids and version) without sending it anything. Read only (a host's write is undone), 32 bytes:
+//   0-7    "PinOne" and two zeros
+//   8      format of this report, 1
+//   9      capabilities: bit 0 = DOF output report (XBOX_DOF_REPORT_ID)
+//   10-31  firmware version (FIRMWARE_VERSION), ASCII, padded with zeros
+// Hosts that don't know it never read it; Windows and SDL keep seeing an Xbox controller.
+#define XBOX_IDENTITY_REPORT_ID       0x07
+#define XBOX_IDENTITY_REPORT_SIZE     32
+#define XBOX_IDENTITY_FORMAT          1
+#define XBOX_IDENTITY_CAPS_DOF        0x01
+#define XBOX_IDENTITY_VERSION_OFFSET  10
+
 static const uint8_t xboxReportMap[] = {
         0x05, 0x01,
         0x09, 0x05,
@@ -149,5 +169,22 @@ static const uint8_t xboxReportMap[] = {
         0x95, 0x01,
         0x91, 0x02,
         0xC0,
-        0xC0
+        0xC0,
+        // DOF (see XBOX_DOF_REPORT_ID)
+        0x06, 0x00, 0xFF,           // Usage Page (Vendor 0xFF00)
+        0x09, 0x01,                 // Usage (0x01)
+        0xA1, 0x01,                 // Collection (Application)
+        0x85, XBOX_DOF_REPORT_ID,   //   Report ID (6)
+        0x09, 0x01,                 //   Usage (0x01)
+        0x15, 0x00,                 //   Logical Minimum (0)
+        0x26, 0xFF, 0x00,           //   Logical Maximum (255)
+        0x75, 0x08,                 //   Report Size (8)
+        0x95, XBOX_DOF_REPORT_SIZE, //   Report Count (9)
+        0x91, 0x02,                 //   Output (Data, Variable, Absolute)
+        // Identity (see XBOX_IDENTITY_REPORT_ID)
+        0x85, XBOX_IDENTITY_REPORT_ID,   //   Report ID (7)
+        0x09, 0x02,                      //   Usage (0x02)
+        0x95, XBOX_IDENTITY_REPORT_SIZE, //   Report Count (32), size 8 and range 0-255 as above
+        0xB1, 0x03,                      //   Feature (Constant, Variable, Absolute)
+        0xC0                        // End Collection
 };
