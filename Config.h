@@ -7,7 +7,7 @@
 #define BLE_AXIS_COUNT 4
 
 // Reported to the config tool and over Bluetooth
-#define FIRMWARE_VERSION "3.3.0"
+#define FIRMWARE_VERSION "3.4.0"
 
 class Config {
 
