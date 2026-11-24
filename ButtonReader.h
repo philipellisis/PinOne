@@ -91,6 +91,20 @@ public:
 
   inline boolean state(int id) { return bitRead(currentState, id); }
 
+  // Inputs held down right now (bit set = pressed), read straight from the shift
+  // register for the power-up check, before the normal reads start. An input only
+  // counts if it reads pressed in every one of `samples` reads, `gapMs` apart, so
+  // a noise spike can't fake a press.
+  uint32_t steadyPressed(uint8_t samples, uint16_t gapMs) {
+    init();
+    uint32_t held = INPUT_MASK;
+    for (uint8_t k = 0; held && k < samples; k++) {
+      if (k > 0) delay(gapMs);
+      held &= samplePressed();
+    }
+    return held;
+  }
+
   uint32_t read() {
     lastState = currentState;
     uint32_t now = micros();

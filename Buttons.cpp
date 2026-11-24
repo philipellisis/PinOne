@@ -26,6 +26,11 @@ void Buttons::init()
   SingleConsumer.begin();
 }
 
+bool Buttons::anyButtonHeldAtBoot()
+{
+  return buttonReader.steadyPressed(5, 5) != 0;
+}
+
 bool Buttons::checkChanged()
 {
   // Check profile switch button hold

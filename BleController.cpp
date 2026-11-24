@@ -415,16 +415,7 @@ void BleController::processGamepadMode() {
 
 void BleController::applyOutputPackets() {
     if (_xboxMode) {
-        uint8_t left  = _rumbleLeft;
-        uint8_t right = _rumbleRight;
-        uint8_t rightOutput = config.bleRumbleRightOutput;
-        // Both motors on one output: drive it from whichever is stronger
-        if (rightOutput == config.bleRumbleLeftOutput) {
-            left = max(left, right);
-            rightOutput = 0;
-        }
-        applyRumble(left, config.bleRumbleLeftOutput, _appliedRumbleLeft);
-        applyRumble(right, rightOutput, _appliedRumbleRight);
+        _rumble.apply(_rumbleLeft, _rumbleRight, 100);
         return;
     }
 
@@ -441,29 +432,6 @@ void BleController::applyOutputPackets() {
             }
         }
     }
-}
-
-// Drives a rumble motor's output: scaled to 0-255 in PWM mode, otherwise fully on
-// once the magnitude reaches the threshold. Only changes are sent, as each one
-// restarts the output's max-on-time (solenoid life extender) timer.
-void BleController::applyRumble(uint8_t magnitude, uint8_t output, RumbleOutput& applied) {
-    uint8_t value;
-    if (config.bleRumblePwm) {
-        value = (magnitude * 255 + 50) / 100;
-    } else {
-        value = magnitude >= config.bleRumbleThreshold ? 255 : 0;
-    }
-    if (output != applied.output) {
-        // Reassigned by the config tool: don't leave the old output running
-        if (applied.output > 0 && applied.value > 0) {
-            outputs.requestOutput(applied.output - 1, 0);
-        }
-        applied.output = output;
-        applied.value  = 0;
-    }
-    if (output == 0 || value == applied.value) return;
-    outputs.requestOutput(output - 1, value);
-    applied.value = value;
 }
 
 // =====================================================================

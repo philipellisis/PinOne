@@ -94,9 +94,10 @@ class Config {
     // Runtime state, not persisted - always starts unlocked on boot.
     bool buttonLockActive = false;
 
-    // Bluetooth: slot each raw button (0-31) reports as (0 = unmapped, 1-8 gamepad
-    // buttons, 9-12 d-pad, 13/14 triggers - see BleController) and the advertised
-    // device name (applies after a restart).
+    // Xbox button map, used by Bluetooth and USB XInput mode: slot each raw button
+    // (0-31) reports as (0 = unmapped, 1-8 gamepad buttons, 9-12 d-pad, 13/14
+    // triggers, 15 Guide (XInput only) - see BleController and XInput.cpp), and
+    // the advertised Bluetooth device name (applies after a restart).
     unsigned char bleButtonMap[32] = {6,14,5,13,4,1,3,2,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,12,9,10,7,0,0,0};
     char deviceName[32] = "PinOne";
     // True once the map/name came from the main config (prefs or config tool), not
@@ -114,6 +115,15 @@ class Config {
     unsigned char bleRumbleRightOutput = 2;
     bool bleRumblePwm = false;
     unsigned char bleRumbleThreshold = 1;
+
+    // True = enumerate over USB as an XInput (Xbox 360) controller instead of the
+    // HID joystick, using the Xbox button map, stick axes and rumble settings
+    // above (see XInput.h). Read before USB starts, so it applies after a
+    // restart; holding any button at power-up boots in normal mode instead.
+    bool usbXInputMode = false;
+    // The saved usbXInputMode, read straight from preferences. For setup(), which
+    // has to pick the USB mode before init() runs.
+    static bool storedUsbXInputMode();
 
     // Wi-Fi DOF: joins this network and takes output values from ArtNet (DMX over
     // UDP), e.g. libdof on a Meta Quest, where USB and Bluetooth DOF aren't
@@ -253,7 +263,7 @@ class Config {
 
   private:
     // must match the size of toConfigBytes() in the config tool; the last byte is the end marker
-    static const uint16_t CONFIG_TRANSFER_SIZE = 715;
+    static const uint16_t CONFIG_TRANSFER_SIZE = 716;
     static const unsigned char CONFIG_END_MARKER = 42;
     unsigned char configTransfer[CONFIG_TRANSFER_SIZE];
     uint16_t configTransferPos = 0;

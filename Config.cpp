@@ -43,6 +43,14 @@ static void loadStringPref(const char* key, char* buf, size_t bufSize) {
 Config::Config() {
 }
 
+bool Config::storedUsbXInputMode() {
+  Preferences p;
+  if (!p.begin("pinone", true)) return false;  // nothing saved yet
+  bool on = p.getBool("configured", false) && p.getBool("usbXInput", false);
+  p.end();
+  return on;
+}
+
 void Config::init() {
   prefs.begin("pinone", true); // read-only
 
@@ -139,6 +147,7 @@ void Config::init() {
     bleRumbleRightOutput = validOutput(prefs.getUChar("rumbleOutR", bleRumbleRightOutput), 2);
     bleRumblePwm = prefs.getBool("rumblePwm", bleRumblePwm);
     bleRumbleThreshold = validRumbleThreshold(prefs.getUChar("rumbleThresh", bleRumbleThreshold));
+    usbXInputMode = prefs.getBool("usbXInput", usbXInputMode);
 
     wifiEnabled = prefs.getBool("wifiEn", wifiEnabled);
     loadStringPref("wifiSsid", wifiSsid, sizeof(wifiSsid));
@@ -270,6 +279,7 @@ void Config::saveConfig() {
     prefs.putUChar("rumbleOutR", bleRumbleRightOutput);
     prefs.putBool("rumblePwm", bleRumblePwm);
     prefs.putUChar("rumbleThresh", bleRumbleThreshold);
+    prefs.putBool("usbXInput", usbXInputMode);
 
     prefs.putBool("wifiEn", wifiEnabled);
     prefs.putString("wifiSsid", wifiSsid);
@@ -459,6 +469,8 @@ void Config::updateConfigFromSerial() {
     artnetUniverse = validArtnetUniverse((uint16_t)readIntFromByte());
     artnetFirstChannel = validArtnetChannel((uint16_t)readIntFromByte());
 
+    usbXInputMode = blockRead();
+
     blockRead(); // end marker, already checked by receiveConfig()
 
     saveConfig();
@@ -592,6 +604,8 @@ void Config::sendConfig() {
     printComma(wifiPassword[0] != '\0');  // only whether one is saved, never the password
     printIntComma(artnetUniverse);
     printIntComma(artnetFirstChannel);
+
+    printComma(usbXInputMode);
 
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();
