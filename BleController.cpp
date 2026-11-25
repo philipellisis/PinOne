@@ -511,6 +511,24 @@ void BleController::processGamepadMode() {
 
 void BleController::applyOutputPackets() {
     if (_xboxMode) {
+<<<<<<< HEAD
+        _rumble.apply(_rumbleLeft, _rumbleRight, 100);
+        return;
+    }
+
+    uint8_t buf[8];
+    while (getOutputPacket(buf)) {
+        if (buf[0] == 0xFF) {
+            // Single output: [0xFF, outputId, value, ...]
+            outputs.requestOutput(buf[1], buf[2]);
+        } else if (buf[0] <= 8) {
+            // Bank update: [bankIndex, v0, v1, v2, v3, v4, v5, v6]
+            uint8_t baseIndex = buf[0] * 7;
+            for (int i = 0; i < 7; i++) {
+                outputs.requestOutput(baseIndex + i, buf[1 + i]);
+            }
+        }
+=======
         uint8_t left  = _rumbleLeft;
         uint8_t right = _rumbleRight;
         uint8_t rightOutput = config.bleRumbleRightOutput;
@@ -521,31 +539,9 @@ void BleController::applyOutputPackets() {
         }
         applyRumble(left, config.bleRumbleLeftOutput, _appliedRumbleLeft);
         applyRumble(right, rightOutput, _appliedRumbleRight);
+>>>>>>> main
     }
     // DOF packets from the host are queued to Communication by the report callbacks and applied on the output task
-}
-
-// Drives a rumble motor's output: scaled to 0-255 in PWM mode, otherwise fully on
-// once the magnitude reaches the threshold. Only changes are sent, as each one
-// restarts the output's max-on-time (solenoid life extender) timer.
-void BleController::applyRumble(uint8_t magnitude, uint8_t output, RumbleOutput& applied) {
-    uint8_t value;
-    if (config.bleRumblePwm) {
-        value = (magnitude * 255 + 50) / 100;
-    } else {
-        value = magnitude >= config.bleRumbleThreshold ? 255 : 0;
-    }
-    if (output != applied.output) {
-        // Reassigned by the config tool: don't leave the old output running
-        if (applied.output > 0 && applied.value > 0) {
-            outputs.requestOutput(applied.output - 1, 0);
-        }
-        applied.output = output;
-        applied.value  = 0;
-    }
-    if (output == 0 || value == applied.value) return;
-    outputs.requestOutput(output - 1, value);
-    applied.value = value;
 }
 
 // =====================================================================

@@ -8,6 +8,7 @@
 #include "Config.h"
 #include "LightShow.h"
 #include "BleController.h"
+#include "WifiDof.h"
 
 extern  Buttons buttons;
 extern  Plunger plunger;
@@ -17,4 +18,5 @@ extern  Communication comm;
 extern  Outputs outputs;
 extern  Config config;
 extern  BleController bleController;
+extern  WifiDof wifiDof;
 #endif

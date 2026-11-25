@@ -1,4 +1,5 @@
 #include "UsbHid.h"
+#include "XInput.h"
 #include <Wire.h>
 #include "Globals.h"
 #include "OutputTask.h"
@@ -12,6 +13,7 @@ Communication comm;
 Outputs outputs;
 Config config;
 BleController bleController;
+WifiDof wifiDof;
 
 // Arduino IDE board settings:
 //   Board: ESP32-Arduino -> ESP32-S3-USB-OTG
@@ -23,8 +25,13 @@ BleController bleController;
 void setup() {
   threadingInit();
 
+  // The USB mode has to be picked before USB starts: XInput when the config tool
+  // selected it, unless a button is held at power-up. That is the way back to the
+  // normal mode if XInput mode doesn't work with a host.
+  bool xinput = Config::storedUsbXInputMode() && !buttons.anyButtonHeldAtBoot();
+
   // Register HID + CDC and start TinyUSB composite device
-  usbHidSetup();   // registers HID descriptors, sets VID/PID, starts ComSerial CDC
+  usbHidSetup(xinput);  // registers HID descriptors, sets VID/PID, starts ComSerial CDC
   USB.begin();     // starts TinyUSB with composite HID + CDC
   usbHidStart();   // initialises HID report data structures
 
@@ -46,6 +53,9 @@ void setup() {
   if (config.bluetoothEnable) {
     bleController.begin();
   }
+
+  // After Bluetooth, so it knows whether the radio is shared (see WifiDof::start())
+  wifiDof.begin();
 
   outputTaskStart();
 }
@@ -77,6 +87,11 @@ void loop() {
   Gamepad1.service();
   BootKeyboard.service();
   SingleConsumer.service();
+
+  // XInput mode: the controller report and rumble, from the same inputs
+  if (usbXInputActive()) {
+    XInputPad.update();
+  }
 
   // Update BLE controller (reads directly from globals, no SPI needed)
   if (config.bluetoothEnable) {

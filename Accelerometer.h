@@ -27,7 +27,7 @@ class Accelerometer {
     void processTiltButton();
     void updateXAxis();
     void updateYAxis();
-    void updateVelocity();
+    void updateVelocity(int16_t accelX, int16_t accelY);
     void updateRxAxis();
     void updateRyAxis();
     void resetVelocity();

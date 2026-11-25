@@ -179,6 +179,9 @@ void Communication::sendAdmin() {
         accel.refreshAxes();
         config.updateUSB = true;
       }
+      // Join (or leave) the Wi-Fi network if its settings changed. Outside the
+      // input pause above: restarting Wi-Fi can take a few hundred ms.
+      wifiDof.applyConfig();
       admin = 0;
       break;
     case OFF:
@@ -198,6 +201,10 @@ void Communication::sendAdmin() {
       break;
     case CLEAR_BLE_BONDS:
       bleController.clearBonds();
+      admin = 0;
+      break;
+    case WIFI_STATUS:
+      wifiDof.sendStatus();
       admin = 0;
       break;
     case RESET:

@@ -13,6 +13,10 @@ class Buttons {
     bool checkChanged();
     unsigned char numberButtonsPressed = 0;
     void init();
+    // True if any physical button is held down. For the power-up check in
+    // setup(): holding a button boots in normal USB mode even when XInput mode
+    // is selected. Takes about 20 ms.
+    bool anyButtonHeldAtBoot();
     void sendButtonState();
     bool sendButtonPush(unsigned char i, bool currentButtonState);
     // Safety net: when no physical button is held any more, nothing may stay pressed in

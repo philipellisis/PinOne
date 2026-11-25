@@ -80,6 +80,7 @@ void outputTaskFn(void*) {
     }
 
     comm.communicate();
+    wifiDof.service();
 
     uint32_t now = millis();
     if (now - lastLightStep >= LIGHT_SHOW_STEP_MS) {

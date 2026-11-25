@@ -175,7 +175,11 @@ extern HidPrintBuffer ConfigOut; // buffered Print helper for outbound HidConfig
 // out of the way while the config tool is being answered.
 extern volatile uint32_t g_lastVendorTxMs;
 
-void usbHidSetup();  // Call before USB.begin() — registers HID + CDC, sets VID/PID
+// Call before USB.begin(): registers HID + CDC, sets VID/PID. xinput = enumerate
+// as an XInput controller in place of the HID joystick (see XInput.h).
+void usbHidSetup(bool xinput);
 void usbHidStart();  // Call after USB.begin() — opens HID endpoints
+// True when usbHidSetup() started the board in XInput mode
+bool usbXInputActive();
 
 #endif

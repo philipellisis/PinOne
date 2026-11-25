@@ -24,7 +24,31 @@ static unsigned char validRumbleThreshold(unsigned char threshold) {
   return constrain(threshold, 1, 100);
 }
 
+static uint16_t validArtnetUniverse(int universe) {
+  return (uint16_t)universe & 0x7FFF;
+}
+
+static uint16_t validArtnetChannel(int channel) {
+  return (channel >= 1 && channel <= 512) ? channel : 1;
+}
+
+// Reads a string pref into a zero-filled buffer, so the unused tail is always
+// zeros when the buffer is sent to the config tool
+static void loadStringPref(const char* key, char* buf, size_t bufSize) {
+  memset(buf, 0, bufSize);
+  String value = prefs.getString(key, "");
+  strncpy(buf, value.c_str(), bufSize - 1);
+}
+
 Config::Config() {
+}
+
+bool Config::storedUsbXInputMode() {
+  Preferences p;
+  if (!p.begin("pinone", true)) return false;  // nothing saved yet
+  bool on = p.getBool("configured", false) && p.getBool("usbXInput", false);
+  p.end();
+  return on;
 }
 
 void Config::init() {
@@ -123,6 +147,13 @@ void Config::init() {
     bleRumbleRightOutput = validOutput(prefs.getUChar("rumbleOutR", bleRumbleRightOutput), 2);
     bleRumblePwm = prefs.getBool("rumblePwm", bleRumblePwm);
     bleRumbleThreshold = validRumbleThreshold(prefs.getUChar("rumbleThresh", bleRumbleThreshold));
+    usbXInputMode = prefs.getBool("usbXInput", usbXInputMode);
+
+    wifiEnabled = prefs.getBool("wifiEn", wifiEnabled);
+    loadStringPref("wifiSsid", wifiSsid, sizeof(wifiSsid));
+    loadStringPref("wifiPass", wifiPassword, sizeof(wifiPassword));
+    artnetUniverse = validArtnetUniverse(prefs.getUShort("artUni", artnetUniverse));
+    artnetFirstChannel = validArtnetChannel(prefs.getUShort("artCh", artnetFirstChannel));
 
     usbNudgeXAxis = validAxis(prefs.getUChar("usbAxNudX", usbNudgeXAxis), USB_AXIS_COUNT, 0);
     usbNudgeYAxis = validAxis(prefs.getUChar("usbAxNudY", usbNudgeYAxis), USB_AXIS_COUNT, 1);
@@ -248,6 +279,13 @@ void Config::saveConfig() {
     prefs.putUChar("rumbleOutR", bleRumbleRightOutput);
     prefs.putBool("rumblePwm", bleRumblePwm);
     prefs.putUChar("rumbleThresh", bleRumbleThreshold);
+    prefs.putBool("usbXInput", usbXInputMode);
+
+    prefs.putBool("wifiEn", wifiEnabled);
+    prefs.putString("wifiSsid", wifiSsid);
+    prefs.putString("wifiPass", wifiPassword);
+    prefs.putUShort("artUni", artnetUniverse);
+    prefs.putUShort("artCh", artnetFirstChannel);
 
     prefs.putUChar("usbAxNudX", usbNudgeXAxis);
     prefs.putUChar("usbAxNudY", usbNudgeYAxis);
@@ -418,6 +456,21 @@ void Config::updateConfigFromSerial() {
     bleRumblePwm = blockRead();
     bleRumbleThreshold = validRumbleThreshold(blockRead());
 
+    wifiEnabled = blockRead();
+    readConfigString(wifiSsid, 32, sizeof(wifiSsid));
+    // The tool never gets the password back, so it only sends one when the user
+    // has typed a new one (1); otherwise (0) the saved password is kept
+    bool setPassword = blockRead() == 1;
+    if (setPassword) {
+      readConfigString(wifiPassword, 64, sizeof(wifiPassword));
+    } else {
+      configTransferPos += 64;
+    }
+    artnetUniverse = validArtnetUniverse((uint16_t)readIntFromByte());
+    artnetFirstChannel = validArtnetChannel((uint16_t)readIntFromByte());
+
+    usbXInputMode = blockRead();
+
     blockRead(); // end marker, already checked by receiveConfig()
 
     saveConfig();
@@ -546,6 +599,14 @@ void Config::sendConfig() {
     printComma(bleRumblePwm);
     printComma(bleRumbleThreshold);
 
+    printComma(wifiEnabled);
+    printConfigString(wifiSsid, 32);
+    printComma(wifiPassword[0] != '\0');  // only whether one is saved, never the password
+    printIntComma(artnetUniverse);
+    printIntComma(artnetFirstChannel);
+
+    printComma(usbXInputMode);
+
     ConfigOut.print(F("E\r\n"));
     ConfigOut.flush();
 }
@@ -605,5 +666,23 @@ void Config::readConfigArray(unsigned char* configArray, unsigned char size) {
 void Config::printConfigArray(unsigned char* configArray, unsigned char size) {
   for (uint8_t i = 0; i < size; i++) {
     printComma(configArray[i]);
+  }
+}
+
+// A string field on the wire is wireSize bytes, zero-padded. The buffer is one
+// byte longer than the longest string so a full-length one is still terminated.
+void Config::readConfigString(char* str, uint8_t wireSize, uint8_t bufSize) {
+  memset(str, 0, bufSize);
+  for (uint8_t i = 0; i < wireSize; i++) {
+    char c = (char)blockRead();
+    if (i < bufSize - 1) str[i] = c;
+  }
+}
+
+void Config::printConfigString(const char* str, uint8_t wireSize) {
+  bool ended = false;
+  for (uint8_t i = 0; i < wireSize; i++) {
+    if (str[i] == '\0') ended = true;
+    printComma(ended ? 0 : (unsigned char)str[i]);
   }
 }

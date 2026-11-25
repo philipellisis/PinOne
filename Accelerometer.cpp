@@ -159,6 +159,13 @@ void Accelerometer::accelerometerRead()
   }
 
   applyOrientationTransform(xValue, yValue);
+
+  // The velocity is integrated from the acceleration before the soft limit.
+  // The soft limit shapes the X/Y axes, but applied here it would cap every
+  // firm nudge at the same velocity, and VPX derives the force it applies to
+  // the ball from how quickly the velocity changes.
+  int16_t velocityAccelX = xValue;
+  int16_t velocityAccelY = yValue;
   if (config.accelerometerSoftLimitEnabled)
   {
     xValue = softLimit(xValue, localMax);
@@ -171,7 +178,7 @@ void Accelerometer::accelerometerRead()
 
   if (config.accelerometerVelocityEnabled)
   {
-    updateVelocity();
+    updateVelocity(velocityAccelX, velocityAccelY);
     updateRxAxis();
     updateRyAxis();
   }
@@ -358,14 +365,14 @@ void Accelerometer::resetVelocity() {
   lastVelocityMicros = 0;
 }
 
-// Integrate the current (centered, orientation-corrected) acceleration
-// reading into the running velocity estimate, in mm/s. This is the same
+// Integrate the current (centered, orientation-corrected, not soft limited)
+// acceleration reading into the running velocity estimate, in mm/s. This is the same
 // basic technique used by Pinscape Pico's nudge.vx/nudge.vy velocity axes:
 // each cycle, the existing velocity is decayed by a configurable half-life
 // (to remove the effect of any residual DC bias in the acceleration signal,
 // since a stationary cabinet's true average velocity is zero), then the new
 // acceleration's contribution is added in.
-void Accelerometer::updateVelocity() {
+void Accelerometer::updateVelocity(int16_t accelX, int16_t accelY) {
   unsigned long now = micros();
   if (lastVelocityMicros == 0) {
     // first sample since a reset - just establish the time baseline
@@ -391,8 +398,8 @@ void Accelerometer::updateVelocity() {
   // convert a raw (int16 full-scale) acceleration reading to an incremental
   // mm/s contribution over this time step
   float convFactor = velocityCountsToMmPerSec2 * dt;
-  velocityX += static_cast<float>(xValue) * convFactor;
-  velocityY += static_cast<float>(yValue) * convFactor;
+  velocityX += static_cast<float>(accelX) * convFactor;
+  velocityY += static_cast<float>(accelY) * convFactor;
 }
 
 // Scale a velocity in mm/s to the arbitrary INT16 units used on the HID axes

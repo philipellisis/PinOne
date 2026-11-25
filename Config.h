@@ -7,7 +7,7 @@
 #define BLE_AXIS_COUNT 4
 
 // Reported to the config tool and over Bluetooth
-#define FIRMWARE_VERSION "3.3.0"
+#define FIRMWARE_VERSION "3.4.0"
 
 class Config {
 
@@ -94,9 +94,10 @@ class Config {
     // Runtime state, not persisted - always starts unlocked on boot.
     bool buttonLockActive = false;
 
-    // Bluetooth: slot each raw button (0-31) reports as (0 = unmapped, 1-8 gamepad
-    // buttons, 9-12 d-pad, 13/14 triggers - see BleController) and the advertised
-    // device name (applies after a restart).
+    // Xbox button map, used by Bluetooth and USB XInput mode: slot each raw button
+    // (0-31) reports as (0 = unmapped, 1-8 gamepad buttons, 9-12 d-pad, 13/14
+    // triggers, 15 Guide (XInput only) - see BleController and XInput.cpp), and
+    // the advertised Bluetooth device name (applies after a restart).
     unsigned char bleButtonMap[32] = {6,14,5,13,4,1,3,2,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,12,9,10,7,0,0,0};
     char deviceName[32] = "PinOne";
     // True once the map/name came from the main config (prefs or config tool), not
@@ -114,6 +115,25 @@ class Config {
     unsigned char bleRumbleRightOutput = 2;
     bool bleRumblePwm = false;
     unsigned char bleRumbleThreshold = 1;
+
+    // True = enumerate over USB as an XInput (Xbox 360) controller instead of the
+    // HID joystick, using the Xbox button map, stick axes and rumble settings
+    // above (see XInput.h). Read before USB starts, so it applies after a
+    // restart; holding any button at power-up boots in normal mode instead.
+    bool usbXInputMode = false;
+    // The saved usbXInputMode, read straight from preferences. For setup(), which
+    // has to pick the USB mode before init() runs.
+    static bool storedUsbXInputMode();
+
+    // Wi-Fi DOF: joins this network and takes output values from ArtNet (DMX over
+    // UDP), e.g. libdof on a Meta Quest, where USB and Bluetooth DOF aren't
+    // available. DMX channel artnetFirstChannel drives output 1, the next channel
+    // output 2, and so on. See WifiDof.
+    bool wifiEnabled = false;
+    char wifiSsid[33] = "";      // up to 32 bytes
+    char wifiPassword[65] = "";  // up to 64 bytes; never sent back to the config tool
+    uint16_t artnetUniverse = 0;      // 0-32767 (ArtNet port-address: net, sub-net, universe)
+    uint16_t artnetFirstChannel = 1;  // 1-512
 
     // Which gamepad axis each nudge/plunger signal is reported on over USB:
     // 0 = X, 1 = Y, 2 = Z, 3 = Rx, 4 = Ry (see MinimalGamepad::setAxis()).
@@ -212,7 +232,11 @@ class Config {
     // X/Y gamepad axes, the integrated velocity is reported on the Rx/Ry axes.
     bool accelerometerVelocityEnabled = false;
     int accelerometerVelocityDecayTime = 100;  // velocity half-life, in milliseconds
-    int accelerometerVelocityScale = 100;       // INT16 units per mm/s
+    // INT16 units per mm/s; full scale is 32767 / this value mm/s. For real-world
+    // nudge strength, VPX 10.8.0 needs X/Y-Gain = 242842 / this value % (1518% at
+    // 160), and VPX 10.8.1+ needs the sensor "Unit scale" = 32.768 / this value
+    // (160 makes its built-in "Pinscape nudge velocity" preset, 0.2048, exact).
+    int accelerometerVelocityScale = 160;
 
     // Soft limit on the acceleration reading. Below the knee the response is
     // linear; above it the reading is compressed toward accelerometerMax (and
@@ -239,7 +263,7 @@ class Config {
 
   private:
     // must match the size of toConfigBytes() in the config tool; the last byte is the end marker
-    static const uint16_t CONFIG_TRANSFER_SIZE = 613;
+    static const uint16_t CONFIG_TRANSFER_SIZE = 716;
     static const unsigned char CONFIG_END_MARKER = 42;
     unsigned char configTransfer[CONFIG_TRANSFER_SIZE];
     uint16_t configTransferPos = 0;
@@ -252,6 +276,8 @@ class Config {
     int16_t readIntFromByte();
     void readConfigArray(unsigned char* configArray, unsigned char size);
     void printConfigArray(unsigned char* configArray, unsigned char size);
+    void readConfigString(char* str, uint8_t wireSize, uint8_t bufSize);
+    void printConfigString(const char* str, uint8_t wireSize);
 
 };
 

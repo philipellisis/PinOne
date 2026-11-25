@@ -1,4 +1,5 @@
 #include "UsbHid.h"
+#include "XInput.h"
 #include <string.h>
 
 // HID Report Descriptor for Gamepad (identical to V1 MinimalHID)
@@ -202,7 +203,24 @@ void MinimalGamepad::begin() {
     _ready = true;
 }
 
+// In XInput mode the joystick collection is left out (the XInput interface
+// replaces it), keeping the consumer and keyboard collections and their IDs
+static const uint16_t XINPUT_MODE_DESCRIPTOR_LEN =
+    sizeof(_hidReportDescriptorConsumer) + sizeof(_hidReportDescriptorKeyboard);
+
+static bool s_xinputMode = false;
+
+bool usbXInputActive() {
+    return s_xinputMode;
+}
+
 uint16_t MinimalGamepad::_onGetDescriptor(uint8_t* buffer) {
+    if (s_xinputMode) {
+        memcpy(buffer, _hidReportDescriptorConsumer, sizeof(_hidReportDescriptorConsumer));
+        memcpy(buffer + sizeof(_hidReportDescriptorConsumer), _hidReportDescriptorKeyboard,
+               sizeof(_hidReportDescriptorKeyboard));
+        return XINPUT_MODE_DESCRIPTOR_LEN;
+    }
     memcpy(buffer, _combinedReportDescriptor, sizeof(_combinedReportDescriptor));
     return sizeof(_combinedReportDescriptor);
 }
@@ -259,6 +277,11 @@ static bool vendorBusy() {
 }
 
 bool MinimalGamepad::sendNow(uint32_t timeoutMs) {
+    // No joystick collection in XInput mode: the report is kept but never sent
+    if (s_xinputMode) {
+        _dirty = false;
+        return true;
+    }
     _lastTry = millis();
     bool ok = HID.SendReport(1, &_report, sizeof(_report), timeoutMs);
     _dirty = !ok;
@@ -279,7 +302,7 @@ bool MinimalGamepad::clearButtons() {
 }
 
 void MinimalGamepad::service() {
-    if (!_ready) return;
+    if (!_ready || s_xinputMode) return;
     uint32_t now = millis();
     if (_dirty) {
         if (now - _lastTry >= HID_RETRY_MS) sendNow(HID_RETRY_TIMEOUT_MS);
@@ -425,16 +448,26 @@ MinimalGamepad Gamepad1;
 BootKeyboardClass BootKeyboard;
 SingleConsumerClass SingleConsumer;
 
-void usbHidSetup() {
-    HID.addDevice(&Gamepad1, sizeof(_combinedReportDescriptor));
+void usbHidSetup(bool xinput) {
+    s_xinputMode = xinput;
+    HID.addDevice(&Gamepad1, xinput ? XINPUT_MODE_DESCRIPTOR_LEN : sizeof(_combinedReportDescriptor));
     USB.VID(0x39F5);  // Cleveland Software Design's assigned USB-IF vendor ID
-    // NOTE: Windows caches DirectInput calibration/layout per VID+PID under
-    // HKCU\...\MediaProperties\PrivateProperties\DirectInput\VID_xxxx&PID_xxxx.
-    // While the HID report descriptor above is still changing, bump this PID so
-    // Windows builds a fresh cache instead of reusing a stale one (which forces
-    // a manual registry-key delete). Freeze it once the descriptor is final.
-    USB.PID(0x9208);
-    USB.productName("PinOne Ultra");
+    if (xinput) {
+        XInputPad.setup();
+        USB.PID(PINONE_XINPUT_PID);
+        // 2.1 makes Windows read the BOS and Microsoft OS 2.0 descriptors, which
+        // bind its Xbox driver to the XInput interface (see XInput.h)
+        USB.usbVersion(0x0210);
+        USB.productName("PinOne Ultra XInput");
+    } else {
+        // NOTE: Windows caches DirectInput calibration/layout per VID+PID under
+        // HKCU\...\MediaProperties\PrivateProperties\DirectInput\VID_xxxx&PID_xxxx.
+        // While the HID report descriptor above is still changing, bump this PID so
+        // Windows builds a fresh cache instead of reusing a stale one (which forces
+        // a manual registry-key delete). Freeze it once the descriptor is final.
+        USB.PID(0x9208);
+        USB.productName("PinOne Ultra");
+    }
     USB.manufacturerName("PinOne");
     USB.serialNumber("PinOne-Ultra-0001");  // stable ID so Windows stops re-enumerating per port
     ComSerial.begin(9600);  // register CDC before USB.begin()

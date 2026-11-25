@@ -4,6 +4,7 @@
 #include "NimBLEDevice.h"
 #include "NimBLEHIDDevice.h"
 #include "Outputs.h"
+#include "Rumble.h"
 #include "XboxDescriptor.h"
 
 // Report IDs
@@ -150,14 +151,7 @@ private:
     volatile uint8_t _rumbleLeft  = 0;
     volatile uint8_t _rumbleRight = 0;
 
-    // The output (1-based, 0 = none) a rumble motor last drove and the value it set
-    struct RumbleOutput {
-        uint8_t output = 0;
-        uint8_t value  = 0;
-    };
-    RumbleOutput _appliedRumbleLeft;
-    RumbleOutput _appliedRumbleRight;
-    void applyRumble(uint8_t magnitude, uint8_t output, RumbleOutput& applied);
+    RumbleOutputs _rumble;
 
     // Previous state for change detection
     uint8_t  _prevKbdMode = 0;
