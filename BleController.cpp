@@ -511,35 +511,7 @@ void BleController::processGamepadMode() {
 
 void BleController::applyOutputPackets() {
     if (_xboxMode) {
-<<<<<<< HEAD
         _rumble.apply(_rumbleLeft, _rumbleRight, 100);
-        return;
-    }
-
-    uint8_t buf[8];
-    while (getOutputPacket(buf)) {
-        if (buf[0] == 0xFF) {
-            // Single output: [0xFF, outputId, value, ...]
-            outputs.requestOutput(buf[1], buf[2]);
-        } else if (buf[0] <= 8) {
-            // Bank update: [bankIndex, v0, v1, v2, v3, v4, v5, v6]
-            uint8_t baseIndex = buf[0] * 7;
-            for (int i = 0; i < 7; i++) {
-                outputs.requestOutput(baseIndex + i, buf[1 + i]);
-            }
-        }
-=======
-        uint8_t left  = _rumbleLeft;
-        uint8_t right = _rumbleRight;
-        uint8_t rightOutput = config.bleRumbleRightOutput;
-        // Both motors on one output: drive it from whichever is stronger
-        if (rightOutput == config.bleRumbleLeftOutput) {
-            left = max(left, right);
-            rightOutput = 0;
-        }
-        applyRumble(left, config.bleRumbleLeftOutput, _appliedRumbleLeft);
-        applyRumble(right, rightOutput, _appliedRumbleRight);
->>>>>>> main
     }
     // DOF packets from the host are queued to Communication by the report callbacks and applied on the output task
 }
