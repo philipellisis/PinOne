@@ -2,6 +2,7 @@
 #include <Preferences.h>
 #include "Globals.h"
 #include "nimble/porting/nimble/include/os/os_mbuf.h"
+#include "nimble/nimble/host/include/host/ble_hs.h"  // ble_store_read_csfc / ble_store_write_csfc
 
 // BLE HID report descriptor — keyboard (ID 1) + gamepad (ID 2) + DOF output (ID 3)
 static const uint8_t hidReportMap[] = {
@@ -139,6 +140,36 @@ public:
 };
 
 class BleController::ServerCallbacks : public NimBLEServerCallbacks {
+    // NimBLE (up to NimBLE-Arduino 2.5.2) stores the GATT Client Supported Features
+    // (0x2B29) a bonded host writes by deleting the stored entry first, and fails the
+    // write when there is none: the store's BLE_HS_ENOENT (5) goes back to the host
+    // as ATT error 0x05, Insufficient Authentication. A host's first write after
+    // pairing always hits it. Linux (BlueZ) writes it on every connection, then
+    // retries pairing with MITM protection, which a NoInputNoOutput device can't
+    // do, and stops before reading the HID report map: no gamepad appears. That
+    // repeat pairing also makes NimBLE delete the existing bond, so the host's next
+    // connection fails with "key missing" and it reconnects in a loop.
+    // Creating an empty entry once the bond exists lets that delete succeed.
+    static void ensureClientFeaturesEntry(const NimBLEConnInfo& info) {
+        struct ble_store_key_csfc key = {};
+        key.peer_addr = *info.getIdAddress().getBase();
+        // NimBLE looks the entry up with its own record of the peer's address
+        // (ble_hs_conn bhc_peer_addr), which marks an identity address resolved from
+        // a private one as PUBLIC_ID/RANDOM_ID; getIdAddress() reports it as
+        // PUBLIC/RANDOM (ble_hs_conn_addrs). Hosts with privacy on, like Linux,
+        // connect from a private address, so use the ID type then.
+#if !MYNEWT_VAL(BLE_HOST_BASED_PRIVACY)
+        if (info.getAddress() != info.getIdAddress() &&
+            (key.peer_addr.type == BLE_ADDR_PUBLIC || key.peer_addr.type == BLE_ADDR_RANDOM))
+            key.peer_addr.type += BLE_ADDR_PUBLIC_ID;  // PUBLIC -> PUBLIC_ID, RANDOM -> RANDOM_ID
+#endif
+        struct ble_store_value_csfc value = {};
+        if (ble_store_read_csfc(&key, &value) == 0)
+            return;
+        value.peer_addr = key.peer_addr;
+        ble_store_write_csfc(&value);
+    }
+
     void onConnect(NimBLEServer*, NimBLEConnInfo& info) override {
         NimBLEDevice::startSecurity(info.getConnHandle());
     }
@@ -146,6 +177,8 @@ class BleController::ServerCallbacks : public NimBLEServerCallbacks {
     void onAuthenticationComplete(NimBLEConnInfo& info) override {
         if (info.isEncrypted()) {
             BleController::_connected = true;
+            if (info.isBonded())
+                ensureClientFeaturesEntry(info);
             // Faster connection timing for low input latency. Requested once pairing
             // is done rather than during it, so it can't interfere with a host's
             // pairing and service discovery.
