@@ -166,6 +166,7 @@ private:
     uint16_t _prevGpButtons = 0;
     uint8_t  _prevDpad = DPAD_CENTERED;
     int16_t  _prevLX = 0, _prevLY = 0, _prevPlunger = 0;
+    bool     _gpWasSubscribed = false; // last subscription state seen by update()
     uint16_t _prevLT = 0, _prevRT = 0;
 
     // Heartbeat timing

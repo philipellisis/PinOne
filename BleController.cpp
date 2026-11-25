@@ -317,6 +317,15 @@ void BleController::update() {
 
     if (!_connected) return;
 
+    // Reports only go out on a change, so a host that subscribes while every input sits at its
+    // starting value (plunger at rest = 0, nudge centered, no button) would never get a first
+    // report and keep an empty one (sticks read as fully deflected). Resend every axis then.
+    if (_gpSubscribed != _gpWasSubscribed) {
+        _gpWasSubscribed = _gpSubscribed;
+        if (_gpSubscribed)
+            _prevLX = _prevLY = _prevPlunger = INT16_MIN; // can't equal a real reading
+    }
+
     // Check if keyboard mode changed
     // The Xbox profile has no keyboard, so every button goes out as gamepad
     uint8_t kbdMode = _xboxMode ? 0 : config.disableButtonPressWhenKeyboardEnabled;
@@ -428,7 +437,8 @@ void BleController::processGamepadMode() {
     uint8_t dpad = buildDpad(dpadUp, dpadRight, dpadDown, dpadLeft);
 
     // Read analog axes directly from globals
-    int16_t plungerVal = plunger.getAdjustedValue();
+    // Same value as the USB axis (rest, quick release and delay applied), not the raw mapped reading
+    int16_t plungerVal = plunger.getReportedValue();
     // Scaled to the full axis range like the USB gamepad; the raw values only
     // span +/-accelerometerMax, which a host would read as barely moving
     int16_t accelX = accel.getXAxis();
