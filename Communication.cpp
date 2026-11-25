@@ -9,6 +9,32 @@
 #include "Threading.h"
 
 Communication::Communication() {
+  bleFrames = xQueueCreate(BLE_FRAME_QUEUE_LENGTH, 9);
+}
+
+bool Communication::queueBleFrame(const uint8_t* frame) {
+  if (bleFrames == nullptr || frame[0] != firstNumber) return false;
+  const bool bank = frame[1] >= bankOffset && frame[1] < bankOffset + 9;
+  if (!bank && frame[1] != outputSingleNumber) return false; // no admin or connect over Bluetooth: nothing to reply on
+  return xQueueSend(bleFrames, frame, 0) == pdTRUE;
+}
+
+// Applies the frames queued from Bluetooth as communicate() applies the USB ones
+void Communication::communicateBle() {
+  uint8_t frame[9];
+  for (uint8_t n = 0; n < BLE_FRAME_QUEUE_LENGTH && xQueueReceive(bleFrames, frame, 0) == pdTRUE; n++) {
+    if (frame[1] == outputSingleNumber) {
+      if (frame[2] < 63) {
+        outputs.updateOutput(frame[2], frame[3]);
+      }
+      continue;
+    }
+    if (config.lightShowState != OUTPUT_RECEIVED) {
+      lightShow.setLightsOff();
+    }
+    config.lightShowState = OUTPUT_RECEIVED_RESET_TIMER;
+    updateOutputsFromPacket(frame);
+  }
 }
 
 
@@ -62,6 +88,9 @@ void Communication::communicate() {
   }
   if (config.legacySerialDofEnabled) {
     communicateLegacySerial();
+  }
+  if (bleFrames != nullptr) {
+    communicateBle();
   }
   sendAdmin();
 }

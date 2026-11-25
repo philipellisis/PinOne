@@ -15,6 +15,11 @@ class Communication {
     Communication();
     void communicate();
 
+    // DOF over Bluetooth: a 9-byte frame as on the USB vendor channel ([0, 200+bank, v0..v6] or [0, 252, output, value, ...]),
+    // queued from the NimBLE host task (the HID report callbacks) and applied by communicate() on the output task, like USB frames.
+    // Returns false when the frame is not a bank or single-output frame, or the queue is full.
+    bool queueBleFrame(const uint8_t* frame);
+
   private:
     char* connectedString = "DEBUG,CSD Board Connected\r\n";
     uint8_t firstNumber = 0; //0 normally
@@ -42,6 +47,11 @@ class Communication {
 
     static const uint16_t MAX_BYTES_PER_PASS = 256;
     bool validSecondByte(uint8_t b);
+
+    // Bluetooth DOF frames (see queueBleFrame)
+    static const uint8_t BLE_FRAME_QUEUE_LENGTH = 64;
+    QueueHandle_t bleFrames = nullptr;
+    void communicateBle();
 };
 
 #endif

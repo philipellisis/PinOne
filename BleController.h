@@ -103,7 +103,6 @@ private:
     bool sendGamepad(uint16_t buttons, uint8_t dpad,
                      const uint16_t sticks[NUM_STICK_AXES],
                      uint16_t lt, uint16_t rt);
-    bool getOutputPacket(uint8_t* buf);
     void applyOutputPackets();
 
     // Button mapping
@@ -134,6 +133,8 @@ private:
     NimBLECharacteristic* _kbReport      = nullptr;
     NimBLECharacteristic* _gpReport      = nullptr;
     NimBLECharacteristic* _outputReport  = nullptr;
+    NimBLECharacteristic* _dofReport     = nullptr; // Xbox mode: DOF vendor output report (XBOX_DOF_REPORT_ID)
+    NimBLECharacteristic* _identityReport = nullptr; // Xbox mode: identity feature report (XBOX_IDENTITY_REPORT_ID)
 
     KeyReport     _kbState{};
     GamepadReport _gpState{};
@@ -158,10 +159,6 @@ private:
     RumbleOutput _appliedRumbleRight;
     void applyRumble(uint8_t magnitude, uint8_t output, RumbleOutput& applied);
 
-    // DOF output packet received from the BLE host
-    uint8_t _outputPkt[8] = {};
-    volatile bool _outputDirty = false;
-
     // Previous state for change detection
     uint8_t  _prevKbdMode = 0;
     uint8_t  _prevKbdMod = 0;
@@ -181,8 +178,12 @@ private:
 
     class ServerCallbacks;
     class OutputCallbacks;
+    class DofCallbacks;
+    class IdentityCallbacks;
     class InputCallbacks;
     friend class ServerCallbacks;
     friend class OutputCallbacks;
+    friend class DofCallbacks;
+    friend class IdentityCallbacks;
     friend class InputCallbacks;
 };
