@@ -2,6 +2,7 @@
 #include <Preferences.h>
 #include "Globals.h"
 #include "nimble/porting/nimble/include/os/os_mbuf.h"
+#include "nimble/nimble/host/include/host/ble_hs.h"  // ble_store_read_csfc / ble_store_write_csfc
 
 // BLE HID report descriptor — keyboard (ID 1) + gamepad (ID 2) + DOF output (ID 3)
 static const uint8_t hidReportMap[] = {
@@ -70,20 +71,62 @@ public:
     OutputCallbacks(BleController* ctrl) : _ctrl(ctrl) {}
 
     void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo& info) override {
-        const uint8_t* data = chr->getValue().data();
-        size_t len          = chr->getValue().length();
+        // getValue() returns a copy: keep it while its data is read
+        const NimBLEAttValue value = chr->getValue();
+        const uint8_t* data = value.data();
+        size_t len          = value.length();
         if (_ctrl->_xboxMode) {
-            // [dcEnableActuators, leftTrigger, rightTrigger, weak, strong, ...]
+            // [dcEnableActuators, leftTrigger, rightTrigger, strong, weak, ...]: hosts send the strong (low frequency) motor
+            // first, as Linux hid-microsoft (magnitude[2]) and SDL's Bluetooth rumble packet do
             if (len < 5) return;
             bool enabled = (data[0] & 0x0F) != 0;
-            _ctrl->_rumbleRight = enabled ? min(data[3], (uint8_t)100) : 0;
-            _ctrl->_rumbleLeft  = enabled ? min(data[4], (uint8_t)100) : 0;
+            _ctrl->_rumbleLeft  = enabled ? min(data[3], (uint8_t)100) : 0;
+            _ctrl->_rumbleRight = enabled ? min(data[4], (uint8_t)100) : 0;
             return;
         }
+        // DOF feature report: [bankIndex 0-8, v0..v6] or [0xFF, outputId, value, ...], turned into the USB frame and queued, so it
+        // is applied like USB DOF (light show suppressed, values DOF already set skipped) and no write overwrites another one
         if (len < 8) return;
-        memcpy(_ctrl->_outputPkt, data, 8);
-        _ctrl->_outputDirty = true;
+        uint8_t frame[9] = {};
+        if (data[0] == 0xFF) {
+            frame[1] = 252;
+            frame[2] = data[1];
+            frame[3] = data[2];
+        } else if (data[0] <= 8) {
+            frame[1] = 200 + data[0];
+            memcpy(frame + 2, data + 1, 7);
+        } else {
+            return;
+        }
+        comm.queueBleFrame(frame);
     }
+};
+
+// DOF in Xbox mode: the vendor output report (XBOX_DOF_REPORT_ID), USB frames as they are, one or more per write
+class BleController::DofCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo&) override {
+        const NimBLEAttValue value = chr->getValue(); // a copy: kept while its data is read
+        const uint8_t* data = value.data();
+        for (size_t offset = 0; offset + XBOX_DOF_REPORT_SIZE <= value.length(); offset += XBOX_DOF_REPORT_SIZE) {
+            comm.queueBleFrame(data + offset);
+        }
+    }
+};
+
+// Identity in Xbox mode (XBOX_IDENTITY_REPORT_ID): read only, a host's write (SET_REPORT) is undone
+static void setIdentityValue(NimBLECharacteristic* chr) {
+    uint8_t value[XBOX_IDENTITY_REPORT_SIZE] = {};
+    memcpy(value, "PinOne", 6);
+    value[8] = XBOX_IDENTITY_FORMAT;
+    value[9] = XBOX_IDENTITY_CAPS_DOF;
+    strncpy((char*)value + XBOX_IDENTITY_VERSION_OFFSET, FIRMWARE_VERSION, XBOX_IDENTITY_REPORT_SIZE - XBOX_IDENTITY_VERSION_OFFSET - 1);
+    chr->setValue(value, sizeof(value));
+}
+
+class BleController::IdentityCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo&) override { setIdentityValue(chr); }
 };
 
 class BleController::InputCallbacks : public NimBLECharacteristicCallbacks {
@@ -97,6 +140,36 @@ public:
 };
 
 class BleController::ServerCallbacks : public NimBLEServerCallbacks {
+    // NimBLE (up to NimBLE-Arduino 2.5.2) stores the GATT Client Supported Features
+    // (0x2B29) a bonded host writes by deleting the stored entry first, and fails the
+    // write when there is none: the store's BLE_HS_ENOENT (5) goes back to the host
+    // as ATT error 0x05, Insufficient Authentication. A host's first write after
+    // pairing always hits it. Linux (BlueZ) writes it on every connection, then
+    // retries pairing with MITM protection, which a NoInputNoOutput device can't
+    // do, and stops before reading the HID report map: no gamepad appears. That
+    // repeat pairing also makes NimBLE delete the existing bond, so the host's next
+    // connection fails with "key missing" and it reconnects in a loop.
+    // Creating an empty entry once the bond exists lets that delete succeed.
+    static void ensureClientFeaturesEntry(const NimBLEConnInfo& info) {
+        struct ble_store_key_csfc key = {};
+        key.peer_addr = *info.getIdAddress().getBase();
+        // NimBLE looks the entry up with its own record of the peer's address
+        // (ble_hs_conn bhc_peer_addr), which marks an identity address resolved from
+        // a private one as PUBLIC_ID/RANDOM_ID; getIdAddress() reports it as
+        // PUBLIC/RANDOM (ble_hs_conn_addrs). Hosts with privacy on, like Linux,
+        // connect from a private address, so use the ID type then.
+#if !MYNEWT_VAL(BLE_HOST_BASED_PRIVACY)
+        if (info.getAddress() != info.getIdAddress() &&
+            (key.peer_addr.type == BLE_ADDR_PUBLIC || key.peer_addr.type == BLE_ADDR_RANDOM))
+            key.peer_addr.type += BLE_ADDR_PUBLIC_ID;  // PUBLIC -> PUBLIC_ID, RANDOM -> RANDOM_ID
+#endif
+        struct ble_store_value_csfc value = {};
+        if (ble_store_read_csfc(&key, &value) == 0)
+            return;
+        value.peer_addr = key.peer_addr;
+        ble_store_write_csfc(&value);
+    }
+
     void onConnect(NimBLEServer*, NimBLEConnInfo& info) override {
         NimBLEDevice::startSecurity(info.getConnHandle());
     }
@@ -104,6 +177,8 @@ class BleController::ServerCallbacks : public NimBLEServerCallbacks {
     void onAuthenticationComplete(NimBLEConnInfo& info) override {
         if (info.isEncrypted()) {
             BleController::_connected = true;
+            if (info.isBonded())
+                ensureClientFeaturesEntry(info);
             // Faster connection timing for low input latency. Requested once pairing
             // is done rather than during it, so it can't interfere with a host's
             // pairing and service discovery.
@@ -206,6 +281,9 @@ void BleController::begin() {
 
         _gpReport = _hidDevice->getInputReport(XBOX_INPUT_REPORT_ID);
         _outputReport = _hidDevice->getOutputReport(XBOX_OUTPUT_REPORT_ID);
+        _dofReport = _hidDevice->getOutputReport(XBOX_DOF_REPORT_ID);
+        _identityReport = _hidDevice->getFeatureReport(XBOX_IDENTITY_REPORT_ID);
+        setIdentityValue(_identityReport);
     } else {
         _hidDevice->setManufacturer("PinOne");
         _hidDevice->setPnp(0x02, 0x39F5, 0x9208, 0x0100);  // Cleveland Software Design's assigned USB-IF vendor ID
@@ -240,6 +318,14 @@ void BleController::begin() {
 
     static OutputCallbacks outCb(this);
     _outputReport->setCallbacks(&outCb);
+    if (_dofReport) {
+        static DofCallbacks dofCb;
+        _dofReport->setCallbacks(&dofCb);
+    }
+    if (_identityReport) {
+        static IdentityCallbacks identityCb;
+        _identityReport->setCallbacks(&identityCb);
+    }
 
     _hidDevice->startServices();
 
@@ -263,6 +349,15 @@ void BleController::update() {
     applyOutputPackets();
 
     if (!_connected) return;
+
+    // Reports only go out on a change, so a host that subscribes while every input sits at its
+    // starting value (plunger at rest = 0, nudge centered, no button) would never get a first
+    // report and keep an empty one (sticks read as fully deflected). Resend every axis then.
+    if (_gpSubscribed != _gpWasSubscribed) {
+        _gpWasSubscribed = _gpSubscribed;
+        if (_gpSubscribed)
+            _prevLX = _prevLY = _prevPlunger = INT16_MIN; // can't equal a real reading
+    }
 
     // Check if keyboard mode changed
     // The Xbox profile has no keyboard, so every button goes out as gamepad
@@ -375,7 +470,8 @@ void BleController::processGamepadMode() {
     uint8_t dpad = buildDpad(dpadUp, dpadRight, dpadDown, dpadLeft);
 
     // Read analog axes directly from globals
-    int16_t plungerVal = plunger.getAdjustedValue();
+    // Same value as the USB axis (rest, quick release and delay applied), not the raw mapped reading
+    int16_t plungerVal = plunger.getReportedValue();
     // Scaled to the full axis range like the USB gamepad; the raw values only
     // span +/-accelerometerMax, which a host would read as barely moving
     int16_t accelX = accel.getXAxis();
@@ -415,6 +511,7 @@ void BleController::processGamepadMode() {
 
 void BleController::applyOutputPackets() {
     if (_xboxMode) {
+<<<<<<< HEAD
         _rumble.apply(_rumbleLeft, _rumbleRight, 100);
         return;
     }
@@ -431,7 +528,20 @@ void BleController::applyOutputPackets() {
                 outputs.requestOutput(baseIndex + i, buf[1 + i]);
             }
         }
+=======
+        uint8_t left  = _rumbleLeft;
+        uint8_t right = _rumbleRight;
+        uint8_t rightOutput = config.bleRumbleRightOutput;
+        // Both motors on one output: drive it from whichever is stronger
+        if (rightOutput == config.bleRumbleLeftOutput) {
+            left = max(left, right);
+            rightOutput = 0;
+        }
+        applyRumble(left, config.bleRumbleLeftOutput, _appliedRumbleLeft);
+        applyRumble(right, rightOutput, _appliedRumbleRight);
+>>>>>>> main
     }
+    // DOF packets from the host are queued to Communication by the report callbacks and applied on the output task
 }
 
 // =====================================================================
@@ -514,13 +624,6 @@ bool BleController::sendGamepad(uint16_t buttons, uint8_t dpad,
     _gpState.rt      = rt;
     _gpReport->setValue((uint8_t*)&_gpState, sizeof(_gpState));
     return _gpReport->notify((uint8_t*)&_gpState, sizeof(_gpState));
-}
-
-bool BleController::getOutputPacket(uint8_t* buf) {
-    if (!_outputDirty) return false;
-    _outputDirty = false;
-    memcpy(buf, _outputPkt, 8);
-    return true;
 }
 
 uint8_t BleController::buildDpad(bool up, bool right, bool down, bool left) {

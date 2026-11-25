@@ -151,6 +151,7 @@ void Plunger::updateButtonState(uint8_t& buttonState, bool condition, bool press
 }
 
 void Plunger::updateGamepadAxis(int16_t value, bool forceUpdate) {
+  reportedValue = value;
   Gamepad1.setAxis(config.usbPlungerAxis, value);
   if (forceUpdate) {
     config.updateUSB = true;
